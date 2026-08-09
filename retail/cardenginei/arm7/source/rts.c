@@ -29,6 +29,12 @@ extern int rtsCaptureContext(u32* ctx);
 #define REG_IME7 (*(vu32*)0x04000208)
 #define REG_IE7  (*(vu32*)0x04000210)
 
+// The ARM7 reads/writes the game's memory through the uncached 0x0C000000
+// window (same as dumpRam), sidestepping any question of what the 0x02000000
+// arena looks like from the ARM7 bus.
+#define RTS_RAM_WINDOW(addr) ((u8*)((addr) - 0x02000000 + 0x0C000000))
+
+
 static rtsCpuContext rtsCtx7;
 
 // ARM9 context address in main RAM, published via sharedAddr[2] by the ce9
@@ -42,6 +48,10 @@ extern void rtsResumeArm7(u32* ctx, const u32* wramSrc, u32* wramDst, u32 wramLe
 // the ARM7 is back at the hotkey site with the IGM unloaded
 static bool rtsResumePending = false;
 
+// Set by the hotkey check in cardengine.c; handed to the menu overlay in
+// sharedAddr[1] so it runs the command instead of drawing the menu
+u32 rtsAutoCmd = 0;
+
 // Entry point from the hotkey site in cardengine.c. setjmp-style: a zero
 // return is the capture, non-zero means the resume trampoline re-entered
 // and the VBlank IRQ path must unwind untouched into the restored game.
@@ -53,18 +63,19 @@ void rtsMenuArm7(void) {
 
 		if (rtsResumePending) {
 			rtsResumePending = false;
+			#if RTS_RESTORE_ARM7_MEM
 			rtsResumeArm7((u32*)&rtsCtx7,
 				(const u32*)RTS_RAM_WINDOW(INGAME_MENU_EXT_LOCATION + RTS_STAGING_WRM7_OFFSET),
 				(u32*)0x03800000, RTS_WRM7_SIZE);
+			#else
+			// ARM7 memory stays as it is (see RTS_RESTORE_ARM7_MEM); the
+			// context restore alone still returns into the game's IRQ path
+			rtsResumeArm7((u32*)&rtsCtx7, (const u32*)0, (u32*)0, 0);
+			#endif
 			// never reached
 		}
 	}
 }
-
-// The ARM7 reads/writes the game's memory through the uncached 0x0C000000
-// window (same as dumpRam), sidestepping any question of what the 0x02000000
-// arena looks like from the ARM7 bus.
-#define RTS_RAM_WINDOW(addr) ((u8*)((addr) - 0x02000000 + 0x0C000000))
 
 typedef struct {
 	u32 fourcc;
@@ -112,6 +123,12 @@ static u32 rtsCheckFile(void) {
 	if (rtsFileCluster == 0 || rtsFileCluster == 0xFFFFFFFF || rtsFile.firstCluster == CLUSTER_FREE) {
 		return RTS_ERR_NO_FILE;
 	}
+	// The captured memory windows below use the SDK<5 layout (work area at
+	// 0x027E0000, cardengine right above it). SDK5 games move all of that,
+	// so refuse them rather than capture the wrong region.
+	if (valueBits & isSdk5) {
+		return RTS_ERR_UNSUPPORTED;
+	}
 	return RTS_OK;
 }
 
@@ -157,6 +174,7 @@ void rtsSaveState(void) {
 		{ RTS_SEC_DTCM, RTS_RAM_WINDOW(INGAME_MENU_EXT_LOCATION + RTS_STAGING_DTCM_OFFSET), 0, RTS_DTCM_SIZE },
 		{ RTS_SEC_ITCM, RTS_RAM_WINDOW(INGAME_MENU_EXT_LOCATION + RTS_STAGING_ITCM_OFFSET), 0, RTS_ITCM_SIZE },
 		{ RTS_SEC_WRM7, (const u8*)0x03800000, 0x03800000, RTS_WRM7_SIZE },
+		{ RTS_SEC_WRA7, (const u8*)0x037F0000, 0x037F0000, RTS_WRA7_SIZE },
 		{ RTS_SEC_WRMS, (const u8*)0x03000000, 0x03000000, RTS_WRMS_SIZE },
 	};
 	for (u32 i = 0; i < sizeof(fixedSections) / sizeof(fixedSections[0]); i++) {
@@ -274,12 +292,11 @@ void rtsLoadState(void) {
 				dst = RTS_RAM_WINDOW(INGAME_MENU_EXT_LOCATION + RTS_STAGING_ITCM_OFFSET);
 				break;
 			case RTS_SEC_WRM7:
-				dst = RTS_RAM_WINDOW(INGAME_MENU_EXT_LOCATION + RTS_STAGING_WRM7_OFFSET);
-				break;
+			case RTS_SEC_WRA7:
 			case RTS_SEC_WRMS:
-				// staged behind the WRM7 image, partially copied below
-				dst = RTS_RAM_WINDOW(INGAME_MENU_EXT_LOCATION + RTS_STAGING_WRM7_OFFSET + RTS_WRM7_SIZE);
-				break;
+				// Captured for later use, deliberately not restored yet
+				// (see RTS_RESTORE_ARM7_MEM in rts_state.h)
+				continue;
 			default:
 				continue; // unknown section from a newer minor format
 		}
@@ -294,11 +311,6 @@ void rtsLoadState(void) {
 			return;
 		}
 
-		if (section->fourcc == RTS_SEC_WRMS) {
-			// Only the game-owned slice below the ce7/cheat footprint is
-			// live-restored in V0; the rest is bootstrap-owned right now
-			tonccpy((u8*)0x03000000, dst, RTS_WRMS_RESTORE_SIZE);
-		}
 	}
 	rtsSetStage(RTS_STAGE_DONE);
 

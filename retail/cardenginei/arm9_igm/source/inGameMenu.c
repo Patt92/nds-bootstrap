@@ -472,13 +472,14 @@ static const unsigned char* rtsResultText(u32 res) {
 		case RTS_ERR_WRONG_GAME: return (const unsigned char*)"State is for another game";
 		case RTS_ERR_VERSION:    return (const unsigned char*)"Incompatible state version";
 		case RTS_ERR_CRC:        return (const unsigned char*)"State file is corrupted";
+		case RTS_ERR_UNSUPPORTED: return (const unsigned char*)"Not supported for this game";
 		default:                 return (const unsigned char*)"Unknown error";
 	}
 }
 
 u32 getDtcmBase(void);
 
-static void rtsCommand(u32 cmd) {
+static void rtsCommand(u32 cmd, bool quick) {
 	sharedAddr[3] = 0xFFFFFFFF;
 
 	if (cmd == RTS_CMD_SAVE) {
@@ -522,6 +523,18 @@ static void rtsCommand(u32 cmd) {
 
 	clearScreen(false);
 	printCenter(15, 10, rtsResultText(res), res == RTS_OK ? FONT_LIME : FONT_RED, false);
+
+	if (quick) {
+		// Hotkey path: show the result briefly, then leave on our own
+		for (int i = 0; i < 60; i++) {
+			while (REG_VCOUNT != 191) mySwiDelay(100);
+			while (REG_VCOUNT == 191) mySwiDelay(100);
+		}
+		sharedAddr[4] = 0x54495845; // EXIT
+		while (sharedAddr[4] != 0) swiDelay(100);
+		return;
+	}
+
 	printCenter(15, 12, (const unsigned char*)"A: OK", FONT_LIGHT_GRAY, false);
 	waitKeys(KEY_A);
 	do {
@@ -1023,20 +1036,32 @@ u32 inGameMenu(s32 *mainScreen, u32 consoleModel, s32 *exceptionRegisters) {
 		showException(exceptionRegisters);
 	}
 
-	// Wait for keys to be released
-	drawMainMenu(menuItems, menuItemCount);
-	drawCursor(0);
-	do {
-		printTime();
-		#ifndef B4DS
-		printBattery();
-		#endif
-		while (REG_VCOUNT != 191) mySwiDelay(100);
-		while (REG_VCOUNT == 191) mySwiDelay(100);
-	} while(KEYS & igmText.hotkey);
+	#ifndef B4DS
+	// A quick save/load hotkey was pressed (rts.c): run it and leave again
+	// without ever showing the menu
+	const u32 rtsAuto = exception ? 0 : sharedAddr[1];
+	if (rtsAuto == RTS_CMD_SAVE || rtsAuto == RTS_CMD_LOAD) {
+		rtsCommand(rtsAuto, true);
+	} else
+	#else
+	const u32 rtsAuto = 0;
+	#endif
+	{
+		// Wait for keys to be released
+		drawMainMenu(menuItems, menuItemCount);
+		drawCursor(0);
+		do {
+			printTime();
+			#ifndef B4DS
+			printBattery();
+			#endif
+			while (REG_VCOUNT != 191) mySwiDelay(100);
+			while (REG_VCOUNT == 191) mySwiDelay(100);
+		} while(KEYS & igmText.hotkey);
+	}
 
 	u8 cursorPosition = 0;
-	while (sharedAddr[4] == 0x554E454D) {
+	while (!rtsAuto && sharedAddr[4] == 0x554E454D) {
 		drawMainMenu(menuItems, menuItemCount);
 		drawCursor(cursorPosition);
 		printTime();
@@ -1108,10 +1133,10 @@ u32 inGameMenu(s32 *mainScreen, u32 consoleModel, s32 *exceptionRegisters) {
 					break;
 				#ifndef B4DS
 				case MENU_SAVE_STATE:
-					rtsCommand(RTS_CMD_SAVE);
+					rtsCommand(RTS_CMD_SAVE, false);
 					break;
 				case MENU_LOAD_STATE:
-					rtsCommand(RTS_CMD_LOAD);
+					rtsCommand(RTS_CMD_LOAD, false);
 					break;
 				#endif
 				case MENU_QUIT:

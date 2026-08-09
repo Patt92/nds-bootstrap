@@ -42,6 +42,7 @@
 #include "cardengine.h"
 #include "fpsAdjust.h"
 #include "nds_header.h"
+#include "rts_state.h"
 #include "igm_text.h"
 
 #ifndef TWLSDK
@@ -121,6 +122,11 @@ extern u8 romRead_LED;
 extern u8 dmaRomRead_LED;
 extern u8 remappedKeys[12];
 extern u16 igmHotkey;
+#ifndef TWLSDK
+extern u16 rtsSaveHotkey;
+extern u16 rtsLoadHotkey;
+extern u32 rtsAutoCmd; // pending quick save/load command (rts.c)
+#endif
 extern u16 screenSwapHotkey;
 
 #ifdef TWLSDK
@@ -1917,7 +1923,36 @@ void myIrqHandlerVBlank(void) {
 	}
 #endif */
 
-	if ((0 == (REG_KEYINPUT & igmHotkey) && 0 == (REG_EXTKEYINPUT & (((igmHotkey >> 10) & 3) | ((igmHotkey >> 6) & 0xC0))) && (valueBits & igmAccessible) && !wifiIrq) /* || returnToMenu */ || sharedAddr[5] == 0x4C4D4749 /* IGML */) {
+#ifndef TWLSDK
+	// Experimental RTS quick save/load hotkeys (rts.c). These take the same
+	// freeze path as the in-game menu; the menu overlay runs the command
+	// instead of drawing the menu. Edge-triggered, so holding the combo
+	// fires exactly once. A zero hotkey is disabled - without that check
+	// the mask below would match on every frame.
+	{
+		static bool rtsHotkeyHeld = false;
+		bool rtsHotkeyDown = false;
+
+		if (rtsFileCluster != 0 && (valueBits & igmAccessible) && !wifiIrq) {
+			if (rtsSaveHotkey != 0 && 0 == (REG_KEYINPUT & rtsSaveHotkey)
+			 && 0 == (REG_EXTKEYINPUT & (((rtsSaveHotkey >> 10) & 3) | ((rtsSaveHotkey >> 6) & 0xC0)))) {
+				rtsHotkeyDown = true;
+				if (!rtsHotkeyHeld) rtsAutoCmd = RTS_CMD_SAVE;
+			} else if (rtsLoadHotkey != 0 && 0 == (REG_KEYINPUT & rtsLoadHotkey)
+			 && 0 == (REG_EXTKEYINPUT & (((rtsLoadHotkey >> 10) & 3) | ((rtsLoadHotkey >> 6) & 0xC0)))) {
+				rtsHotkeyDown = true;
+				if (!rtsHotkeyHeld) rtsAutoCmd = RTS_CMD_LOAD;
+			}
+		}
+		rtsHotkeyHeld = rtsHotkeyDown;
+	}
+#endif
+
+	if ((0 == (REG_KEYINPUT & igmHotkey) && 0 == (REG_EXTKEYINPUT & (((igmHotkey >> 10) & 3) | ((igmHotkey >> 6) & 0xC0))) && (valueBits & igmAccessible) && !wifiIrq) /* || returnToMenu */ || sharedAddr[5] == 0x4C4D4749 /* IGML */
+#ifndef TWLSDK
+	 || rtsAutoCmd != 0
+#endif
+	) {
 		if (tryLockMutex(&saveMutex)) {
 #ifdef TWLSDK
 		igmText = (struct IgmText *)INGAME_MENU_LOCATION;

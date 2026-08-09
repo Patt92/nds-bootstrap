@@ -16,6 +16,54 @@
 
 nds-bootstrap is an open-source application that allows Nintendo DS/DSi ROMs and homebrew to be natively utilised rather than using an emulator. nds-bootstrap works on Nintendo DSi/3DS SD cards through CFW and on Nintendo DS through flashcards.
 
+> **This is an experimental fork.** It adds real-time save states (RTS) on top of
+> upstream nds-bootstrap. See [Save States (experimental)](#save-states-experimental)
+> below and [`docs/rts-architecture.md`](docs/rts-architecture.md). The feature is a
+> work in progress and **not** ready for normal use — read the limitations before
+> trying it.
+
+# Save States (experimental)
+
+This fork can snapshot a running DS game and restore it later, rather than only
+backing up the in-game `.sav` file. States are stored separately from normal saves
+in `sd:/_nds/nds-bootstrap/states/<GAMECODE>-<HEADERCRC>.ss0` (one slot, 8 MiB,
+allocated on first launch). Normal saves, cheats, screenshots and every other
+in-game menu function are untouched.
+
+Two ways to trigger it:
+
+- **In-game menu** — open it as usual (default <kbd>L</kbd>+<kbd>Down</kbd>+<kbd>Select</kbd>)
+  and pick `Save State` or `Load State`.
+- **Hotkeys** — save and load directly without going through the menu.
+
+| Action | Default combo | `nds-bootstrap.ini` key |
+| --- | --- | --- |
+| In-game menu | <kbd>L</kbd>+<kbd>Down</kbd>+<kbd>Select</kbd> | `HOTKEY = 284` |
+| Save state | <kbd>R</kbd>+<kbd>Down</kbd>+<kbd>Select</kbd> | `SAVE_STATE_HOTKEY = 184` |
+| Load state | <kbd>R</kbd>+<kbd>Up</kbd>+<kbd>Select</kbd> | `LOAD_STATE_HOTKEY = 144` |
+
+Values are hexadecimal key masks, using the same bits as `HOTKEY`
+(`A=1, B=2, Select=4, Start=8, Right=10, Left=20, Up=40, Down=80, R=100, L=200, X=400, Y=800`);
+add the bits of every button in the combo. Setting a hotkey to `0` disables it, so
+the action is only reachable through the in-game menu. The whole feature can be
+turned off with `SAVE_STATES = 0`.
+
+### Limitations
+
+This is a proof of concept, not a finished feature:
+
+- **DSi/3DS only, retail DS games only.** DSiWare, TWL-native games, B4DS/flashcard
+  mode and SDK5 games are rejected. Wi-Fi and Download Play are out of scope.
+- **Only CPU state and main RAM are restored.** Video, VRAM, audio, timers and DMA
+  are not reconstructed yet, so a loaded state will very likely have broken
+  graphics or sound even when the game keeps running.
+- **ARM7 memory is captured but not restored yet** — the region map still needs
+  verification on hardware, so a resumed ARM7 keeps its current memory.
+- States are tied to the exact ROM and to a specific build of this fork.
+- **Untested on real hardware.** It compiles and the design is documented, but it
+  has not been validated on a console. Expect crashes, and do not use it on a save
+  file you care about.
+
 # ROM Compatibility
 
 nds-bootstrap supports most DS/DSi ROMs, with a few exceptions. You can enhance your gaming experience with cheats and faster load times than general cartridges (for games that support those features). Game saving is supported too and will be saved in the `.sav` extention, and `.pub` or `.prv` for DSiWare. If you find a bug, please report it in the [issues tab](https://github.com/ahezard/nds-bootstrap/issues). ROM compatibility is recorded in the [compatibility list](https://docs.google.com/spreadsheets/d/1LRTkXOUXraTMjg1eedz_f7b5jiuyMv2x6e_jY_nyHSc/edit#gid=0).

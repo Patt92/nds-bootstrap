@@ -126,7 +126,9 @@ typedef struct cardengineArm7 {
 	u16 scfgRomBak;
 	u16 igmHotkey;
 	u16 screenSwapHotkey;
-	u16 screenSwapHotkeyPad;
+	u16 rtsSaveHotkey;
+	u16 rtsLoadHotkey;
+	u16 rtsHotkeyPad;
 	u32 romLocation;
 	u32 romPartLocation;
 	u32 romPartSrc;

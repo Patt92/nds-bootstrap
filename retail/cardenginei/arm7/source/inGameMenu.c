@@ -64,6 +64,13 @@ void inGameMenu(void) {
 	// returnToMenu = false;
 	sharedAddr[4] = 0x554E454D; // 'MENU'
 	const u32 errorBak = sharedAddr[0];
+	#ifndef TWLSDK
+	// Hand a pending quick save/load to the overlay (rts.c); it runs the
+	// command and leaves again instead of showing the menu
+	extern u32 rtsAutoCmd;
+	sharedAddr[1] = rtsAutoCmd;
+	rtsAutoCmd = 0;
+	#endif
 	IPC_SendSync(0x9);
 	REG_MASTER_VOLUME = 0;
 	int oldIME = enterCriticalSection();
@@ -253,6 +260,9 @@ void inGameMenu(void) {
 	}
 
 	sharedAddr[0] = errorBak;
+	#ifndef TWLSDK
+	sharedAddr[1] = 0;
+	#endif
 	sharedAddr[4] = 0;
 	sharedAddr[7] -= 0x10000000; // Clear time receive flag
 	timeTillStatusRefresh = 7;

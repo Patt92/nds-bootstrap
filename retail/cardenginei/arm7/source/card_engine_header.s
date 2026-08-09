@@ -39,6 +39,8 @@
 .global scfgRomBak
 .global igmHotkey
 .global screenSwapHotkey
+.global rtsSaveHotkey
+.global rtsLoadHotkey
 .global ndsCodeStart
 .global romLocation
 .global romPartLocation
@@ -129,6 +131,10 @@ scfgRomBak:
 igmHotkey:
 	.hword	0
 screenSwapHotkey:
+	.hword	0
+rtsSaveHotkey:
+	.hword	0
+rtsLoadHotkey:
 	.hword	0
 	.hword	0 @ padding
 romLocation:

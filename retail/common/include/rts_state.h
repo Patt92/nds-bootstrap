@@ -18,6 +18,7 @@
 #define RTS_ERR_WRONG_GAME 4
 #define RTS_ERR_VERSION    5
 #define RTS_ERR_CRC        6
+#define RTS_ERR_UNSUPPORTED 7 // game layout outside the V0 scope (SDK5)
 
 #define RTS_MAGIC          0x5353424E // 'NBSS'
 #define RTS_FORMAT_VERSION 0
@@ -31,6 +32,18 @@
 #define RTS_SEC_ITCM 0x4D435449 // 'ITCM' ARM9 instruction TCM (32 KiB, ARM9-staged)
 #define RTS_SEC_WRM7 0x374D5257 // 'WRM7' ARM7-exclusive WRAM (64 KiB @ 0x03800000)
 #define RTS_SEC_WRMS 0x534D5257 // 'WRMS' shared WRAM as seen by ARM7 (32 KiB @ 0x03000000)
+#define RTS_SEC_WRA7 0x37415257 // 'WRA7' game ARM7 region in the DSi WRAM window
+                                //        (64 KiB @ 0x037F0000, above ce7's 61 KiB
+                                //         at 0x037E0400 and the cheat engine)
+
+// The ARM7-side memory map is not settled yet: the captured contexts show
+// stacks in both 0x037F0000+ and 0x03800000+ depending on SDK version, and
+// both regions would have to be copied from a stack-free trampoline (the
+// staging area in INGAME_MENU_EXT_LOCATION only has ~15 KiB spare). Until
+// that is verified on hardware, both regions are captured into the state
+// file but NOT restored - a resumed ARM7 keeps its current memory.
+// See docs/rts-architecture.md section 10.
+#define RTS_RESTORE_ARM7_MEM 0
 
 // Written by the IGM into sharedAddr[3] after a successful load so the ce9
 // menu wrapper runs the resume trampoline once the menu has fully exited
@@ -60,6 +73,7 @@ typedef struct rtsCpuContext {
 #define RTS_DTCM_SIZE 0x4000
 #define RTS_ITCM_SIZE 0x8000
 #define RTS_WRM7_SIZE 0x10000
+#define RTS_WRA7_SIZE 0x10000
 #define RTS_WRMS_SIZE 0x8000
 // Only the slice of shared WRAM below the cardengine/cheat-engine footprint
 // is restored in V0 (the rest is bootstrap-owned while a game runs)

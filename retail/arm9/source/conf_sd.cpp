@@ -615,6 +615,12 @@ static void load_conf(configuration* conf, const char* fn) {
 	// Screen Swap Hotkey
 	conf->screenSwapHotkey = strtol(config_file.fetch("NDS-BOOTSTRAP", "SCREEN_SWAP_HOTKEY", "740").c_str(), NULL, 16);
 
+	// Experimental RTS quick save/load hotkeys.
+	// Mirrors of the in-game menu combo (L+Down+Select): R+Down+Select saves,
+	// R+Up+Select loads. Set to 0 to require the in-game menu instead.
+	conf->saveStateHotkey = strtol(config_file.fetch("NDS-BOOTSTRAP", "SAVE_STATE_HOTKEY", "184").c_str(), NULL, 16);
+	conf->loadStateHotkey = strtol(config_file.fetch("NDS-BOOTSTRAP", "LOAD_STATE_HOTKEY", "144").c_str(), NULL, 16);
+
 	// Manual file path
 	conf->manualPath = strdup(config_file.fetch("NDS-BOOTSTRAP", "MANUAL_PATH").c_str());
 
@@ -690,6 +696,10 @@ void getIgmStrings(configuration* conf, bool b4ds) {
 		cardengineArm7* ce7 = (cardengineArm7*)CARDENGINEI_ARM7_BUFFERED_LOCATION;
 		ce7->igmHotkey = conf->hotkey;
 		ce7->screenSwapHotkey = conf->screenSwapHotkey;
+		if (conf->saveStates) {
+			ce7->rtsSaveHotkey = conf->saveStateHotkey;
+			ce7->rtsLoadHotkey = conf->loadStateHotkey;
+		}
 	}
 
 	char path[40];

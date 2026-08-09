@@ -61,11 +61,14 @@ BEGIN_ASM_FUNC rtsResumeArm7
 	mov	r4, #0
 	str	r4, [r12]		@ REG_IME = 0
 
+	cmp	r3, #0			@ a zero length means "leave ARM7 memory alone"
+	beq	.rtsWramDone
 .rtsWramCopy:
 	ldmia	r1!, {r4-r7}
 	stmia	r2!, {r4-r7}
 	subs	r3, r3, #16
 	bne	.rtsWramCopy
+.rtsWramDone:
 
 	@ Interrupt config; CPSR.I still masks until the game's IRQ return
 	ldr	r1, =0x04000210

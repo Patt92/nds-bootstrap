@@ -348,27 +348,54 @@ save→resume→load→resume ×10 without reboot; later: load a state after ful
    the save path never writes through the game-save code paths. **A loaded state can still be
    logically inconsistent with the on-cart save file written after the snapshot** — document
    for users (same caveat as emulator save states).
-7. **Games with the ARM7 IRQ stack in main RAM**: the load path live-restores MRAM while the
+7. **ARM7 memory map (open, gating M4)**: ce7 links at `0x037E0400` (61 KiB) and the cheat
+   engine at `0x037DC000` — both in the DSi WRAM window, so restoring ARM7 WRAM at
+   `0x03800000` does *not* clobber the running engine. But the game's own ARM7 region at
+   `0x037F0000-0x03800000` (right above ce7) sits in that same window and the captured `sp`
+   may point into either region. Both would have to be copied from the stack-free trampoline,
+   and the staging area in `INGAME_MENU_EXT_LOCATION` only has ~15 KiB spare against 128 KiB
+   needed. Until this is measured on hardware, `RTS_RESTORE_ARM7_MEM` is **0**: WRM7/WRA7/WRMS
+   are captured into the state file but not restored.
+8. **Games with the ARM7 IRQ stack in main RAM**: the load path live-restores MRAM while the
    ARM7 still runs C code on its current stack. If a game's ARM7 stack is in main RAM instead
    of ARM7-WRAM, the restore clobbers it mid-execution. Mitigation if it bites: check the
    captured `sp` ranges and defer the affected MRAM stripe to the trampoline.
-8. **IRQ window during menu exit on load**: between `leaveCriticalSection()` in the engines'
+9. **IRQ window during menu exit on load**: between `leaveCriticalSection()` in the engines'
    menu exit and the trampolines' `IME=0`, an IRQ can run game handlers against restored RAM
    with pre-restore hardware state. Usually survivable (same game code), but a known
    raciness — tighten by masking IME across the whole load exit if it shows up in testing.
-9. **Shared WRAM**: only the slice below the ce7/cheat footprint (0x400 bytes) is
+10. **Shared WRAM**: only the slice below the ce7/cheat footprint (0x400 bytes) is
    live-restored; the full 32 KiB is captured in the file for later use.
 
 ## 11. Status & how to test
 
 Implemented on this branch: M0-M4 (M4 = experimental resume; video/audio/timers/DMA are NOT
-restored yet, so post-resume glitches are expected — M5+ is the hardening phase).
+restored yet, so post-resume glitches are expected — M5+ is the hardening phase), plus
+configurable quick save/load hotkeys.
 
-Build: needs devkitARM (`dkp-pacman -S nds-dev`, plus `gcc lzss.c -o /usr/local/bin/lzss`),
-then `make package-nightly` — or push the branch to a GitHub fork and let the upstream
-workflow (`devkitpro/devkitarm:20241104`) build it. **This branch has not been compiled yet**
-(no toolchain on the dev machine) — expect a round of compile fixes, and watch the IGM
-overlay link (39K region) and the ce7/ce9 region budgets.
+Build: `make package-nightly` under devkitARM, or the same container CI uses:
+
+```
+docker run --rm -v "$PWD":/work -w /work devkitpro/devkitarm:20241104 \
+  bash -c 'apt-get update && apt-get install -y gcc && gcc lzss.c -o /usr/local/bin/lzss \
+           && git config --global safe.directory "*" && make package-nightly'
+```
+
+**Build status: green** on `devkitpro/devkitarm:20241104`. Region budgets as built:
+IGM overlay 19052 B of the 39 KiB region (loader copies 0xA000), ce7 49380 B of 61 KiB.
+The `LOAD segment with RWX permissions` linker warnings are pre-existing upstream.
+**Still never run on hardware.**
+
+Scope guard: `rtsCheckFile()` refuses SDK5 games (`RTS_ERR_UNSUPPORTED`) because the captured
+windows (`0x027E0000` work area, cardengine right above it) use the SDK<5 layout.
+
+Hotkeys (all configurable in `nds-bootstrap.ini`, hex key masks, `0` disables):
+`SAVE_STATE_HOTKEY = 184` (R+Down+Select), `LOAD_STATE_HOTKEY = 144` (R+Up+Select) —
+deliberate mirrors of the in-game menu's `HOTKEY = 284` (L+Down+Select), chosen so that no
+combination is a subset of another hotkey (notably `SCREEN_SWAP_HOTKEY = 740`, L+R+X+Up).
+Detection is edge-triggered in the ARM7 VBlank handler and takes the same freeze path as the
+menu; the overlay runs the command instead of drawing the menu. A zero mask is checked
+explicitly — without that, `REG_KEYINPUT & 0` would match every frame.
 
 On hardware (3DS, TWiLight Menu++, RE:DS):
 1. First boot creates `sd:/_nds/nds-bootstrap/states/<TID>-<CRC>.ss0` (8 MiB;
