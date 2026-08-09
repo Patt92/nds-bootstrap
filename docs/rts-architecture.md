@@ -303,6 +303,28 @@ audio → IPC → timers → DMA), IRQ last before CPUs → ARM7 context restore
 return → ARM9 trampoline: I/D-cache invalidate, banked regs, SPSR, `subs pc, lr, #4`-style
 return into the game. Both sides re-enable IME only through the restored SPSR/IRQ-return.
 
+## 8b. As built (M1-M4, this branch)
+
+The freeze/resume core is implemented as a **setjmp/longjmp pair around the existing menu
+entry points** — no new synchronization architecture:
+
+- Capture (`rtsCaptureContext`, identical asm on both CPUs): at the exact IRQ entry into the
+  menu path (`ce9` case 0x9 / `ce7` hotkey site), r4-r11, sp/lr, CPSR, the interrupted SPSR and
+  banked SYS/SVC state are stored. Caller-saved registers are dead at that call boundary.
+  Caller frames above the capture SP stay untouched for the whole menu session, so the
+  DTCM/WRAM dumps taken later still describe the capture instant.
+- Resume (`rtsResumeArm9`/`rtsResumeArm7`): stack-free asm in the engine regions (excluded
+  from restore). Copies the staged TCM/ARM7-WRAM images in, invalidates caches (ARM9),
+  restores IE/IME + banked state + SPSR + registers, and returns to the capture site with
+  r0=1 — the save-time IRQ path then unwinds through the just-restored stacks into the game.
+- Staging map inside `INGAME_MENU_EXT_LOCATION`: WRM7 image at +0x18200 (vramBak slot, load
+  only), WRMS behind it, DTCM at +0x34000, ITCM at +0x38000.
+- State file sections: CPU7 CPU9 DTCM ITCM WRM7 WRMS MRAM WRK9, each CRC32-verified after
+  restore; header `valid` flag written last; stage markers persisted for post-freeze triage.
+- ARM9⇄ARM7 handoff on load: IGM auto-exits the menu, hands `RTS_RESUME_MAGIC` to the ce9
+  wrapper via `sharedAddr[3]` (the ARM7 exit path leaves that word alone), ARM7 arms its own
+  `rtsResumePending` and jumps after `inGameMenu()` returns at the hotkey site.
+
 ## 9. Milestones & acceptance (unchanged from project brief)
 
 M0 this document · M1 IGM entries + dummy commands + file plumbing · M2 format + MRAM dump/verify
@@ -326,3 +348,33 @@ save→resume→load→resume ×10 without reboot; later: load a state after ful
    the save path never writes through the game-save code paths. **A loaded state can still be
    logically inconsistent with the on-cart save file written after the snapshot** — document
    for users (same caveat as emulator save states).
+7. **Games with the ARM7 IRQ stack in main RAM**: the load path live-restores MRAM while the
+   ARM7 still runs C code on its current stack. If a game's ARM7 stack is in main RAM instead
+   of ARM7-WRAM, the restore clobbers it mid-execution. Mitigation if it bites: check the
+   captured `sp` ranges and defer the affected MRAM stripe to the trampoline.
+8. **IRQ window during menu exit on load**: between `leaveCriticalSection()` in the engines'
+   menu exit and the trampolines' `IME=0`, an IRQ can run game handlers against restored RAM
+   with pre-restore hardware state. Usually survivable (same game code), but a known
+   raciness — tighten by masking IME across the whole load exit if it shows up in testing.
+9. **Shared WRAM**: only the slice below the ce7/cheat footprint (0x400 bytes) is
+   live-restored; the full 32 KiB is captured in the file for later use.
+
+## 11. Status & how to test
+
+Implemented on this branch: M0-M4 (M4 = experimental resume; video/audio/timers/DMA are NOT
+restored yet, so post-resume glitches are expected — M5+ is the hardening phase).
+
+Build: needs devkitARM (`dkp-pacman -S nds-dev`, plus `gcc lzss.c -o /usr/local/bin/lzss`),
+then `make package-nightly` — or push the branch to a GitHub fork and let the upstream
+workflow (`devkitpro/devkitarm:20241104`) build it. **This branch has not been compiled yet**
+(no toolchain on the dev machine) — expect a round of compile fixes, and watch the IGM
+overlay link (39K region) and the ce7/ce9 region budgets.
+
+On hardware (3DS, TWiLight Menu++, RE:DS):
+1. First boot creates `sd:/_nds/nds-bootstrap/states/<TID>-<CRC>.ss0` (8 MiB;
+   `SAVE_STATES = 0` in nds-bootstrap.ini disables the feature).
+2. M2 check: save a state, corrupt some bytes via the IGM RAM viewer, load — the game session
+   is then torn (expected pre-M5), but load must report success and CRCs must hold.
+3. M3 check: open/close the menu repeatedly — capture must never destabilize a session.
+4. M4 check: save, play 30 s, load — program flow must jump back (screen may glitch until
+   M6). After a freeze, the last stage marker is at file offset 0x38 (`stageMarker`).
