@@ -464,12 +464,51 @@ Once that is answered:
 - **flat** → the window is already correct, and DTCM restore only needs the
   trampoline copy plus the page-out bracket the save path already uses.
 
+## 10d. Hardware test 3 (2026-08-09, build 35614cb)
+
+**Loading is partially working.** A load moved the character three steps back, in the
+same room and field of view — the restore genuinely takes effect. Moving out of the
+current view or changing rooms before loading gives either a crash or graphics
+garbage.
+
+Third dump: PC `0x02078320`, faulting address `0`, `sp = 0x027E3F80` — DTCM again,
+this time near the top of it, i.e. an almost empty stack. The stack words below hold
+CPSR-shaped values (`0x200000B2` = IRQ mode, Thumb, IRQs masked) and return addresses
+in `0x027Fxxxx`, so the exception unwound to close to the base of an IRQ frame.
+
+The DTCM conclusion from §10c stands and is now the top priority. But the same
+arithmetic surfaced a second, independent problem:
+
+**The MRAM section overlapped the cardengine.** `MRAM` covered
+`0x02000000`-`0x02400000`. With the NTR 4 MiB view mirrored — which is what makes the
+game's own `0x027FFE00` header accesses work — `0x023FC000`-`0x02400000` is the same
+memory as `0x027FC000`-`0x02800000`, which holds ce9 (12 KiB), the shared mailbox
+(`0x027FFA0C`), the unpatched-function table, the exception stack and the NDS header.
+Every load therefore overwrote the running cardengine and the mailbox, mid-protocol,
+with save-time bytes. ce9's code is identical between save and load so this often
+survives, but its variables — including the captured ARM9 context itself — are in
+that range. `MRAM` is now `0x400000 - 0x4000`, i.e. the top 16 KiB is excluded. If
+the view turns out to be flat instead, the cost is at most 16 KiB of unrestored game
+state.
+
+**The mirror question is still unanswered and now gates the DTCM work too.** The
+staging slots used for the TCM images (`0x026EC000`/`0x026F8000`) are above 4 MiB, so
+`RTS_RAM_WINDOW` is only correct for them if the view is flat. The planned fix is to
+move staging *below* 4 MiB, which is unambiguous either way: the ARM7 restores MRAM,
+writes the DTCM image into a 16 KiB slice of it, the trampoline copies that slice into
+DTCM, and an ARM9→ARM7 handshake then repairs the slice from the MRAM section in the
+state file before either CPU resumes. That design does not depend on the answer — but
+whether `MRAM` may also need further exclusions does.
+
+The build prints `RAM MIRROR: YES/NO/?` on the **save** result screen (not the load
+one — a successful load leaves the menu immediately).
+
 ## 11. Status & how to test
 
 Implemented on this branch: M0-M4 (M4 = experimental resume; video/audio/timers/DMA are NOT
 restored yet, so post-resume glitches are expected — M5+ is the hardening phase), plus
-configurable quick save/load hotkeys. On hardware, saving works and loading succeeds
-only when nothing changed in between; see §10b and §10c.
+configurable quick save/load hotkeys. On hardware, saving works and loading takes
+effect but only survives when little changed in between; see §10b-§10d.
 
 Build: `make package-nightly` under devkitARM, or the same container CI uses:
 

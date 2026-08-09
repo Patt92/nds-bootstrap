@@ -83,12 +83,17 @@ typedef struct {
 	u32 size;
 } rtsRamRange;
 
-// V0 memory policy (retail NTR game): the game's 4 MiB arena, which through
-// the NTR 4 MiB mirror also covers the 0x024xxxxx-0x027xxxxx addresses the
-// game uses. Everything the ARM7 cannot reach this way (DTCM in particular)
-// goes through ARM9 staging instead.
+// V0 memory policy (retail NTR game): the game's 4 MiB arena, minus the top
+// 16 KiB. If the NTR 4 MiB view is mirrored - which is what makes the game's
+// 0x024xxxxx-0x027xxxxx addresses work at all - then 0x023FC000-0x02400000 is
+// the same memory as 0x027FC000-0x02800000, which holds ce9 (12 KiB), the
+// shared mailbox, the unpatched-function table, the exception stack and the
+// NDS header. Restoring it would overwrite the running cardengine and the
+// mailbox mid-protocol. Excluding it costs at most 16 KiB of game state if
+// the view turns out to be flat instead.
+#define RTS_MRAM_TOP_RESERVED 0x4000
 static const rtsRamRange rtsRamRanges[] = {
-	{ RTS_SEC_MRAM, 0x02000000, 0x400000 },
+	{ RTS_SEC_MRAM, 0x02000000, 0x400000 - RTS_MRAM_TOP_RESERVED },
 };
 #define RTS_RAM_RANGE_COUNT (sizeof(rtsRamRanges) / sizeof(rtsRamRanges[0]))
 
