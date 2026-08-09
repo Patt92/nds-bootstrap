@@ -26,6 +26,7 @@
 .global screenshotCluster
 .global pageFileCluster
 .global manualCluster
+.global rtsFileCluster
 .global valueBits
 .global mainScreen
 .global language
@@ -80,6 +81,8 @@ screenshotCluster:
 pageFileCluster:
 	.word	0x00000000
 manualCluster:
+	.word	0x00000000
+rtsFileCluster:
 	.word	0x00000000
 cardStruct:
 	.word	0x00000000

@@ -109,6 +109,7 @@ extern u32 srParamsCluster;
 extern u32 ramDumpCluster;
 extern u32 screenshotCluster;
 extern u32 pageFileCluster;
+extern u32 rtsFileCluster;
 extern u32 manualCluster;
 extern module_params_t* moduleParams;
 extern u32 valueBits;
@@ -171,6 +172,7 @@ static aFile ramDumpFile;
 static aFile srParamsFile;
 static aFile screenshotFile;
 static aFile pageFile;
+aFile rtsFile; // Experimental RTS state file (rts.c)
 static aFile manualFile;
 
 static int saveTimer = 0;
@@ -293,6 +295,7 @@ static void driveInitialize(void) {
 	getFileFromCluster(&screenshotFile, screenshotCluster, (valueBits & bootstrapOnFlashcard));
 	getFileFromCluster(&pageFile, pageFileCluster, (valueBits & bootstrapOnFlashcard));
 	getFileFromCluster(&manualFile, manualCluster, (valueBits & bootstrapOnFlashcard));
+	getFileFromCluster(&rtsFile, rtsFileCluster, (valueBits & bootstrapOnFlashcard));
 
 	//romFile = getFileFromCluster(fileCluster);
 	//buildFatTableCache(&romFile, 0);

@@ -12,6 +12,7 @@
 #include "locations.h"
 #include "cardengine_header_arm9.h"
 #include "nds_header.h"
+#include "rts_state.h"
 #include "tonccpy.h"
 
 void DC_InvalidateRange(const void *base, u32 size);
@@ -455,6 +456,45 @@ static void manual(void) {
 	#endif
 }
 
+#ifndef B4DS
+// Experimental RTS. Labels are hardcoded: igmText.menu[] only has the 8
+// upstream entries and its size is a fixed ABI with the loader.
+static const unsigned char rtsMenuText[2][20] = {"Save State", "Load State"};
+
+static const unsigned char* rtsResultText(u32 res) {
+	switch(res) {
+		case RTS_OK:             return (const unsigned char*)"Done";
+		case RTS_ERR_NO_FILE:    return (const unsigned char*)"No state file";
+		case RTS_ERR_IO:         return (const unsigned char*)"SD write/read failed";
+		case RTS_ERR_NO_STATE:   return (const unsigned char*)"No state saved yet";
+		case RTS_ERR_WRONG_GAME: return (const unsigned char*)"State is for another game";
+		case RTS_ERR_VERSION:    return (const unsigned char*)"Incompatible state version";
+		case RTS_ERR_CRC:        return (const unsigned char*)"State file is corrupted";
+		default:                 return (const unsigned char*)"Unknown error";
+	}
+}
+
+static void rtsCommand(u32 cmd) {
+	sharedAddr[3] = 0xFFFFFFFF;
+	sharedAddr[4] = cmd;
+	while (sharedAddr[4] == cmd) {
+		while (REG_VCOUNT != 191) mySwiDelay(100);
+		while (REG_VCOUNT == 191) mySwiDelay(100);
+	}
+	const u32 res = sharedAddr[3];
+	sharedAddr[3] = 0;
+
+	clearScreen(false);
+	printCenter(15, 10, rtsResultText(res), res == RTS_OK ? FONT_LIME : FONT_RED, false);
+	printCenter(15, 12, (const unsigned char*)"A: OK", FONT_LIGHT_GRAY, false);
+	waitKeys(KEY_A);
+	do {
+		while (REG_VCOUNT != 191) mySwiDelay(100);
+		while (REG_VCOUNT == 191) mySwiDelay(100);
+	} while(KEYS & KEY_A);
+}
+#endif
+
 static void drawCursor(u8 line) {
 	u8 pos = igmText.rtl ? 0x1F : 0;
 	// Clear other cursors
@@ -470,10 +510,15 @@ static void drawMainMenu(MenuItem *menuItems, int menuItemCount) {
 
 	// Print labels
 	for(int i = 0; i < menuItemCount; i++) {
+		const unsigned char *label = igmText.menu[menuItems[i]];
+		#ifndef B4DS
+		if(menuItems[i] >= MENU_SAVE_STATE)
+			label = rtsMenuText[menuItems[i] - MENU_SAVE_STATE];
+		#endif
 		if(igmText.rtl)
-			printRight(0x1D, i, igmText.menu[menuItems[i]], FONT_WHITE, false);
+			printRight(0x1D, i, label, FONT_WHITE, false);
 		else
-			print(2, i, igmText.menu[menuItems[i]], FONT_WHITE, false);
+			print(2, i, label, FONT_WHITE, false);
 	}
 
 	// Print info
@@ -918,10 +963,16 @@ u32 inGameMenu(s32 *mainScreen, u32 consoleModel, s32 *exceptionRegisters) {
 	// Let ARM7 know the menu loaded
 	sharedAddr[5] = 0x59444552; // 'REDY'
 
-	MenuItem menuItems[8];
+	MenuItem menuItems[10];
 	int menuItemCount = 0;
 	if(!exception)
 		menuItems[menuItemCount++] = MENU_EXIT;
+	#ifndef B4DS
+	if(!exception) {
+		menuItems[menuItemCount++] = MENU_SAVE_STATE;
+		menuItems[menuItemCount++] = MENU_LOAD_STATE;
+	}
+	#endif
 	menuItems[menuItemCount++] = MENU_RESET;
 	menuItems[menuItemCount++] = MENU_SCREENSHOT;
 	if(igmText.manualMaxLine > 0 && !exception)
@@ -1019,6 +1070,14 @@ u32 inGameMenu(s32 *mainScreen, u32 consoleModel, s32 *exceptionRegisters) {
 				case MENU_RAM_VIEWER:
 					ramViewer();
 					break;
+				#ifndef B4DS
+				case MENU_SAVE_STATE:
+					rtsCommand(RTS_CMD_SAVE);
+					break;
+				case MENU_LOAD_STATE:
+					rtsCommand(RTS_CMD_LOAD);
+					break;
+				#endif
 				case MENU_QUIT:
 					if (boolQuestion(igmText.quitGameMessage)) {
 						res = 0x54495845; // EXIT

@@ -33,6 +33,7 @@ std::string screenshotPath;
 std::string apFixOverlaysPath;
 std::string musicsFilePath;
 std::string pageFilePath;
+std::string rtsFilePath;
 std::string sharedFontPath;
 
 typedef struct {
@@ -449,6 +450,7 @@ static int runNdsFile(configuration* conf) {
 	struct stat stApFixOverlays;
 	struct stat stMusic;
 	struct stat stPage;
+	struct stat stRtsFile;
 	struct stat stManual;
 	struct stat stTwlFont;
 	u32 clusterSav = 0;
@@ -468,6 +470,7 @@ static int runNdsFile(configuration* conf) {
 	u32 apFixOverlaysCluster = 0;
 	u32 musicCluster = 0;
 	u32 clusterPageFile = 0;
+	u32 clusterRtsFile = 0;
 	u32 clusterManual = 0;
 	u32 clusterTwlFont = 0;
 
@@ -575,11 +578,15 @@ static int runNdsFile(configuration* conf) {
 		clusterPageFile = stPage.st_ino;
 	}
 
+	if (!rtsFilePath.empty() && stat(rtsFilePath.c_str(), &stRtsFile) >= 0) {
+		clusterRtsFile = stRtsFile.st_ino;
+	}
+
 	if (stat(sharedFontPath.c_str(), &stTwlFont) >= 0) {
 		clusterTwlFont = stTwlFont.st_ino;
 	}
 
-	return runNds(st.st_ino, clusterSav, clusterDonor, /* clusterGba, clusterGbaSav, */ clusterQuit, clusterWideCheat, clusterApPatch, clusterApPatchPostCardRead, clusterDSi2DSSave, clusterCheat, clusterPatchOffsetCache, clusterRamDump, clusterSrParams, clusterScreenshot, apFixOverlaysCluster, musicCluster, clusterPageFile, clusterManual, clusterTwlFont, conf);
+	return runNds(st.st_ino, clusterSav, clusterDonor, /* clusterGba, clusterGbaSav, */ clusterQuit, clusterWideCheat, clusterApPatch, clusterApPatchPostCardRead, clusterDSi2DSSave, clusterCheat, clusterPatchOffsetCache, clusterRamDump, clusterSrParams, clusterScreenshot, apFixOverlaysCluster, musicCluster, clusterPageFile, clusterManual, clusterRtsFile, clusterTwlFont, conf);
 }
 
 int main(int argc, char** argv) {

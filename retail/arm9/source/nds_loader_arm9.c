@@ -235,7 +235,7 @@ static bool dldiPatchLoader (data_t *binData, u32 binSize, bool clearBSS, bool a
 	return true;
 }
 
-int runNds(u32 cluster, u32 saveCluster, u32 donorTwlCluster, /* u32 gbaCluster, u32 gbaSavCluster, */ u32 quitCluster, u32 wideCheatCluster, u32 apPatchCluster, u32 apPatchPostCardReadCluster, u32 dsi2dsSavePatchCluster, u32 cheatCluster, u32 patchOffsetCacheCluster, u32 ramDumpCluster, u32 srParamsCluster, u32 screenshotCluster, u32 apFixOverlaysCluster, u32 musicCluster, u32 pageFileCluster, u32 manualCluster, u32 sharedFontCluster, configuration* conf) {
+int runNds(u32 cluster, u32 saveCluster, u32 donorTwlCluster, /* u32 gbaCluster, u32 gbaSavCluster, */ u32 quitCluster, u32 wideCheatCluster, u32 apPatchCluster, u32 apPatchPostCardReadCluster, u32 dsi2dsSavePatchCluster, u32 cheatCluster, u32 patchOffsetCacheCluster, u32 ramDumpCluster, u32 srParamsCluster, u32 screenshotCluster, u32 apFixOverlaysCluster, u32 musicCluster, u32 pageFileCluster, u32 manualCluster, u32 rtsFileCluster, u32 sharedFontCluster, configuration* conf) {
 	nocashMessage("runNds");
 
 	// Load bootloader binary
@@ -317,6 +317,7 @@ int runNds(u32 cluster, u32 saveCluster, u32 donorTwlCluster, /* u32 gbaCluster,
 	loader->musicsSize                  = conf->musicsSize;
 	loader->pageFileCluster             = pageFileCluster;
 	loader->manualCluster               = manualCluster;
+	loader->rtsFileCluster              = rtsFileCluster;
 	loader->sharedFontCluster           = sharedFontCluster;
 	loader->dldiPatchBinaryOffset       = conf->dldiPatchBinaryOffset;
 	loader->language                    = conf->language;

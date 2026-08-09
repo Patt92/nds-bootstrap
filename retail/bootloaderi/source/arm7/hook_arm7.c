@@ -348,6 +348,7 @@ int hookNdsRetailArm7(
 
 	extern u32 cheatEngineOffset;
 	extern u32 quitFileCluster;
+	extern u32 rtsFileCluster;
 
 	// if (!ce7NotFound) {
 	/*	u32 intr_vblank_orig_return = *(u32*)0x2FFC004;
@@ -376,6 +377,7 @@ int hookNdsRetailArm7(
 	ce7->screenshotCluster        = screenshotCluster;
 	ce7->pageFileCluster          = pageFileCluster;
 	ce7->manualCluster            = manualCluster;
+	ce7->rtsFileCluster           = rtsFileCluster;
 	if (gameOnFlashcard) {
 		ce7->valueBits |= b_gameOnFlashcard;
 	}

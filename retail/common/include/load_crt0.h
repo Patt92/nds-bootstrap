@@ -57,6 +57,7 @@ typedef struct loadCrt0 {
 	u32 musicsSize;
 	u32 pageFileCluster;
 	u32 manualCluster;
+	u32 rtsFileCluster;
 	u32 sharedFontCluster;
 	u32 dldiPatchBinaryOffset;
 	u32 patchMpuSize;

@@ -12,6 +12,7 @@
 #include "cardengine.h"
 #include "fpsAdjust.h"
 #include "nds_header.h"
+#include "rts_state.h"
 #include "tonccpy.h"
 
 #define sleepMode BIT(17)
@@ -39,6 +40,11 @@ extern void restorePreManual(void);
 extern void saveMainScreenSetting(void);
 extern void loadInGameMenu(void);
 extern void unloadInGameMenu(void);
+
+#ifndef TWLSDK
+extern void rtsSaveState(void);
+extern void rtsLoadState(void);
+#endif
 
 extern u16 biosRead16(u32 addr);
 
@@ -166,6 +172,14 @@ void inGameMenu(void) {
 					dumpRam();
 					exitMenu = true;
 					break;
+				#ifndef TWLSDK
+				case RTS_CMD_SAVE:
+					rtsSaveState();
+					break;
+				case RTS_CMD_LOAD:
+					rtsLoadState();
+					break;
+				#endif
 				/* case 0x50455453: // STEP
 					returnToMenu = true;
 					exitMenu = true;

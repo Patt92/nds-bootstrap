@@ -83,6 +83,7 @@ typedef struct cardengineArm7 {
 	u32 screenshotCluster;
 	u32 pageFileCluster;
 	u32 manualCluster;
+	u32 rtsFileCluster;
 	u32 cardStruct;
 	u32 valueBits;
 	/*

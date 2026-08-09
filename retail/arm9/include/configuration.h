@@ -96,6 +96,7 @@ typedef struct configuration {
 	char* manualPath;
 	bool saveRelocation;
 	u16 cacheBlockSize;
+	bool saveStates;
 } configuration;
 
 #endif // CONFIGURATION_H

@@ -12,6 +12,13 @@ typedef enum {
 	MENU_OPTIONS = 5,
 	MENU_RAM_VIEWER = 6,
 	MENU_QUIT = 7
+	#ifndef B4DS
+	,
+	// Experimental RTS; labels are hardcoded in the overlay as igmText.menu
+	// only holds the 8 upstream entries (fixed loader ABI)
+	MENU_SAVE_STATE = 8,
+	MENU_LOAD_STATE = 9
+	#endif
 } MenuItem;
 
 typedef enum {

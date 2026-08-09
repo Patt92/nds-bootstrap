@@ -31,6 +31,7 @@
 #include "nitrofs.h"
 #include "igm_text.h"
 #include "locations.h"
+#include "rts_state.h"
 #include "version.h"
 
 #include "nandio.h"
@@ -72,6 +73,7 @@ extern char patchOffsetCacheFilePath[64];
 extern std::string wideCheatFilePath;
 extern std::string cheatFilePath;
 extern std::string ramDumpPath;
+extern std::string rtsFilePath;
 extern std::string srParamsFilePath;
 extern std::string screenshotPath;
 extern std::string apFixOverlaysPath;
@@ -250,6 +252,46 @@ static void createRamDumpBin(configuration* conf) {
 	}
 }
 
+static void createRtsStateBin(configuration* conf, const char* romTid, u16 headerCRC) {
+	// Experimental RTS: pre-allocate the save-state file so the ARM7
+	// cardengine can write it in place via its cluster (like ramDump.bin).
+	if (!conf->saveStates || !dsiFeatures() || conf->b4dsMode || conf->isDSiWare) {
+		return;
+	}
+
+	char statesDir[40];
+	sprintf(statesDir, "%s:/_nds/nds-bootstrap/states", conf->bootstrapOnFlashcard ? "fat" : "sd");
+	mkdir(statesDir, 0777);
+
+	char path[72];
+	sprintf(path, "%s/%s-%04X.ss0", statesDir, romTid, headerCRC);
+	rtsFilePath = path;
+
+	if (getFileSize(rtsFilePath.c_str()) < RTS_FILE_SIZE) {
+		myConsoleDemoInit();
+		iprintf("Allocating space for\n");
+		iprintf("save states.\n");
+		iprintf("Please wait...");
+
+		if (access(rtsFilePath.c_str(), F_OK) == 0) {
+			remove(rtsFilePath.c_str());
+		}
+
+		FILE *rtsFile = fopen(rtsFilePath.c_str(), "wb");
+		if (rtsFile) {
+			fseek(rtsFile, RTS_FILE_SIZE - 1, SEEK_SET);
+			fputc('\0', rtsFile);
+			fclose(rtsFile);
+		}
+
+		consoleClear();
+		if (getFileSize(rtsFilePath.c_str()) < RTS_FILE_SIZE) {
+			iprintf("Failed to create state file.");
+			while (1) swiWaitForVBlank();
+		}
+	}
+}
+
 static void createApFixOverlayBin(configuration* conf) {
 	if (dsiFeatures() && !conf->b4dsMode)
 	{
@@ -351,6 +393,9 @@ static void load_conf(configuration* conf, const char* fn) {
 
 	// B4DS mode
 	conf->b4dsMode = strtol(config_file.fetch("NDS-BOOTSTRAP", "B4DS_MODE", "0").c_str(), NULL, 0);
+
+	// Experimental RTS / save states (DSi/3DS NTR mode only)
+	conf->saveStates = (bool)strtol(config_file.fetch("NDS-BOOTSTRAP", "SAVE_STATES", "1").c_str(), NULL, 0);
 
 	// NDS path
 	conf->ndsPath = strdup(config_file.fetch("NDS-BOOTSTRAP", "NDS_PATH").c_str());
@@ -2873,6 +2918,9 @@ int loadFromSD(configuration* conf, const char *bootstrapPath) {
 
 	// Create RAM dump binary
 	createRamDumpBin(conf);
+
+	// Create RTS save-state file
+	createRtsStateBin(conf, romTid, headerCRC);
 
 	// Create AP-fixed overlay binary
 	createApFixOverlayBin(conf);

@@ -72,6 +72,7 @@
 	.global musicsSize
 	.global pageFileCluster
 	.global manualCluster
+	.global rtsFileCluster
 	.global sharedFontCluster
 	.global dldiPatchBinaryOffset
 	.global patchMpuSize
@@ -206,6 +207,8 @@ musicsSize:
 pageFileCluster:
 	.word	0x00000000
 manualCluster:
+	.word	0x00000000
+rtsFileCluster:
 	.word	0x00000000
 sharedFontCluster:
 	.word	0x00000000
