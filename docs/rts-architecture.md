@@ -503,12 +503,56 @@ whether `MRAM` may also need further exclusions does.
 The build prints `RAM MIRROR: YES/NO/?` on the **save** result screen (not the load
 one — a successful load leaves the menu immediately).
 
+## 10e. Hardware test 4 — mirror measured, DTCM restore implemented
+
+**The RAM MIRROR probe reports NO, consistently.** The NTR view is flat: the game's
+`0x027Exxxx`/`0x027Fxxxx` addresses are real memory distinct from the first 4 MiB.
+Consequences, all now settled:
+
+- `RTS_RAM_WINDOW(addr) = addr - 0x02000000 + 0x0C000000` is a straight offset and is
+  correct for every address this code uses, including the staging slots above 4 MiB.
+  The DTCM images already in the state files were therefore valid all along.
+- `MRAM` (`0x02000000` + 4 MiB) does **not** alias ce9, the mailbox or the NDS header
+  at `0x027Fxxxx`. The top-16 KiB exclusion from §10d was introduced on the mirror
+  hypothesis the measurement refutes, so it has been taken back out — keeping it
+  would only have dropped 16 KiB of game state for no reason.
+
+**Load result before this change:** the game came back **not frozen**, ran, and the
+graphics repaired themselves after a room change; audio was noise. So the remaining
+gaps are exactly the ones the milestone plan predicts — VRAM (M6) and SPU (M7) — plus
+the DTCM stack problem from §10c.
+
+**DTCM restore, now implemented.** The ext region is paged out to `pagefile.sys`
+before both commands (as the screenshot path does). On load the ARM7 leaves the DTCM
+image in that staging slot instead of consuming it, and `rtsResumeArm9` — stack-free,
+because the game's ARM9 stack lives in the DTCM it is about to overwrite — invalidates
+the caches, opens MPU region 0, copies the 16 KiB image to the CP15-reported DTCM
+base, and then hands the region back:
+
+```
+ARM9 trampoline            ARM7 (rtsFinishResume)
+  copy staging -> DTCM
+  sharedAddr[1] = 'DTCD'  ->
+                             page ext region back in from pagefile.sys
+                          <- sharedAddr[1] = 'DTCA'
+  invalidate caches
+  restore context, longjmp   restore context, longjmp
+```
+
+Both waits are bounded (ARM9 ~16M iterations, ARM7 ~32M), so a lost handshake
+degrades to a bad resume rather than a hung console. ITCM is deliberately not
+restored: it holds code, which is identical across a save/load pair.
+
+Verified in the linked object: the literal pool holds `0x026EC000`, `'DTCD'`, `'DTCA'`,
+and the copy loop moves `0x4000` bytes in 16-byte blocks.
+
 ## 11. Status & how to test
 
 Implemented on this branch: M0-M4 (M4 = experimental resume; video/audio/timers/DMA are NOT
 restored yet, so post-resume glitches are expected — M5+ is the hardening phase), plus
-configurable quick save/load hotkeys. On hardware, saving works and loading takes
-effect but only survives when little changed in between; see §10b-§10d.
+configurable quick save/load hotkeys. On hardware, saving works and loading resumes
+the game; DTCM restore has just been added, VRAM and audio are still missing.
+See §10b-§10e.
 
 Build: `make package-nightly` under devkitARM, or the same container CI uses:
 

@@ -518,14 +518,15 @@ static void rtsMailbox(u32 cmd) {
 static void rtsCommand(u32 cmd, bool quick) {
 	sharedAddr[3] = 0xFFFFFFFF;
 
-	if (cmd == RTS_CMD_SAVE) {
-		// The staging area sits inside the ROM cache, so it has to be paged
-		// out to pagefile.sys first and read back afterwards - exactly what
-		// the screenshot path does with the same region. Without this the
-		// game later reads TCM images where it expects ROM data.
-		rtsCacheFlush();        // the ARM7 is about to read this region
-		rtsMailbox(0x50505353); // SSPP: page the ext region out
+	// The staging area is memory the running system owns, so it has to be
+	// paged out to pagefile.sys first - exactly what the screenshot path does
+	// with the same region. The save path reads it back right away; the load
+	// path keeps the staged DTCM image there until the resume trampoline has
+	// consumed it, and the ARM7 pages it back in after the handshake.
+	rtsCacheFlush();        // the ARM7 is about to read this region
+	rtsMailbox(0x50505353); // SSPP: page the ext region out
 
+	if (cmd == RTS_CMD_SAVE) {
 		// Stage both TCMs: they are invisible to the ARM7 but hold the
 		// game's IRQ stacks (DTCM) and fast code (ITCM), without which a
 		// captured CPU context cannot unwind (M4)

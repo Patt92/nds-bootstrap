@@ -16,13 +16,11 @@
 // out to pagefile.sys first and reading it back afterwards - see
 // prepareScreenshot()/saveScreenshot(). The save path now does the same.
 //
-// The load path cannot: it would need the staged images to survive until the
-// resume trampoline, which runs after the menu has already exited, so there
-// is no point left at which the region could be paged back in. It therefore
-// does not stage anything at all - the TCMs are captured into the state file
-// but not restored, like ARM7 memory above. A resumed ARM9 keeps its current
-// TCM contents.
-#define RTS_RESTORE_TCM 0
+// The load path pages the region out the same way and keeps the staged DTCM
+// image there until the resume trampoline has copied it into DTCM; the
+// RTS_HS_* handshake below then lets the ARM7 page the region back in before
+// either CPU carries on. ITCM is not restored - it holds code, which is
+// identical across a save/load pair.
 
 // Result codes reported by ARM7 in sharedAddr[3] after a RTS command
 #define RTS_OK             0
@@ -65,6 +63,12 @@
 // file but NOT restored - a resumed ARM7 keeps its current memory.
 // See docs/rts-architecture.md section 10.
 #define RTS_RESTORE_ARM7_MEM 0
+
+// ARM9 trampoline <-> ARM7 handshake in sharedAddr[1] during a resume: the
+// ARM9 reports that it lifted the staged DTCM image out of the ext region,
+// the ARM7 pages the region back in and acknowledges
+#define RTS_HS_DTCM_DONE 0x44435444 // 'DTCD'
+#define RTS_HS_ACK       0x41435444 // 'DTCA'
 
 // Written by the IGM into sharedAddr[3] after a successful load so the ce9
 // menu wrapper runs the resume trampoline once the menu has fully exited

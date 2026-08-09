@@ -13,6 +13,7 @@
 @ Store order must match rtsCpuContext in rts_state.h.
 
 #include <nds/asminc.h>
+#include "locations.h"
 
 // Keep the size-constrained TWLSDK/GSDD engine variants untouched
 #if !defined(TWLSDK) && !defined(GSDD)
@@ -47,7 +48,7 @@ BEGIN_ASM_FUNC rtsCaptureContext
 	bx	lr
 
 @---------------------------------------------------------------------------------
-@ void rtsResumeArm9(u32* ctx)   -- never returns to its caller
+@ void rtsResumeArm9(u32* ctx, vu32* mailbox)   -- never returns to its caller
 @
 @ The load-side longjmp (docs/rts-architecture.md §6/§8). Runs from the ce9
 @ region (excluded from restore) inside the IRQ path with CPSR.I set. The
@@ -57,16 +58,60 @@ BEGIN_ASM_FUNC rtsCaptureContext
 @   0x30 spSys  0x34 lrSys  0x38 spSvc  0x3C lrSvc  0x40 spsrSvc
 @   0x44 ime  0x48 ie
 @---------------------------------------------------------------------------------
+#define RTS_STAGED_DTCM (INGAME_MENU_EXT_LOCATION + 0x34000)
+
 BEGIN_ASM_FUNC rtsResumeArm9
+	mov	r10, r1			@ mailbox, kept across the copy below
+
 	ldr	r1, =0x04000208
 	mov	r2, #0
 	str	r2, [r1]		@ REG_IME = 0
 
-	@ TCM images are not restored (RTS_RESTORE_TCM): staging them would
-	@ clobber memory that can no longer be paged back in at this point.
-	@ The ARM9 keeps its current TCM contents.
+	@ The ARM7 wrote the staged image straight to RAM; drop stale lines so
+	@ the copy below reads it rather than a cached pre-load view. Invalidate
+	@ only - cleaning would push pre-load data over the restored world.
+	mcr	p15, 0, r2, c7, c5, 0	@ invalidate icache
+	mcr	p15, 0, r2, c7, c6, 0	@ invalidate dcache
+	mcr	p15, 0, r2, c7, c10, 4	@ drain write buffer
 
-	@ No stale line may shadow the restored world
+	@ Open MPU region 0 so both the staging slot and DTCM are reachable
+	@ under the game's own MPU config (the IGM's changeMpu does the same)
+	mrc	p15, 0, r12, c6, c0, 0
+	mov	r2, #0x35
+	mcr	p15, 0, r2, c6, c0, 0
+
+	@ Staged image -> DTCM, wherever the game mapped it. This is the point
+	@ the C stack dies: the game's ARM9 stack lives in DTCM, which is why
+	@ everything from here on is stack-free.
+	mrc	p15, 0, r2, c9, c1, 0
+	mov	r2, r2, lsr #12
+	mov	r2, r2, lsl #12
+	ldr	r3, =RTS_STAGED_DTCM
+	mov	r1, #0x4000
+.rtsDtcmCopy:
+	ldmia	r3!, {r4-r7}
+	stmia	r2!, {r4-r7}
+	subs	r1, r1, #16
+	bne	.rtsDtcmCopy
+
+	mcr	p15, 0, r12, c6, c0, 0	@ MPU region 0 back
+
+	@ Release the staging area: the ARM7 pages the region's real contents
+	@ back in and acknowledges. Bounded, so a lost handshake degrades to a
+	@ bad resume instead of a hung console.
+	ldr	r1, =0x44435444		@ 'DTCD'
+	str	r1, [r10, #4]
+	ldr	r2, =0x41435444		@ 'DTCA'
+	mov	r3, #0x1000000
+.rtsHandshake:
+	ldr	r1, [r10, #4]
+	cmp	r1, r2
+	beq	.rtsHandshakeDone
+	subs	r3, r3, #1
+	bne	.rtsHandshake
+.rtsHandshakeDone:
+
+	@ The ARM7 just rewrote that region behind our back
 	mov	r2, #0
 	mcr	p15, 0, r2, c7, c5, 0	@ invalidate icache
 	mcr	p15, 0, r2, c7, c6, 0	@ invalidate dcache

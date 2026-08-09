@@ -52,6 +52,21 @@ static bool rtsResumePending = false;
 // sharedAddr[1] so it runs the command instead of drawing the menu
 u32 rtsAutoCmd = 0;
 
+extern void restorePreManualFull(void);
+
+// After a load the ext region still holds the staged DTCM image. The ARM9
+// trampoline copies it into DTCM and then says so; only then may the region's
+// real contents be paged back in from pagefile.sys. Both waits are bounded so
+// a lost handshake degrades to a bad resume instead of a hung console.
+static void rtsFinishResume(void) {
+	u32 guard = 0;
+	while (sharedAddr[1] != RTS_HS_DTCM_DONE && ++guard < 0x2000000) { }
+	if (sharedAddr[1] == RTS_HS_DTCM_DONE) {
+		restorePreManualFull();
+	}
+	sharedAddr[1] = RTS_HS_ACK;
+}
+
 // Entry point from the hotkey site in cardengine.c. setjmp-style: a zero
 // return is the capture, non-zero means the resume trampoline re-entered
 // and the VBlank IRQ path must unwind untouched into the restored game.
@@ -63,6 +78,7 @@ void rtsMenuArm7(void) {
 
 		if (rtsResumePending) {
 			rtsResumePending = false;
+			rtsFinishResume();
 			#if RTS_RESTORE_ARM7_MEM
 			rtsResumeArm7((u32*)&rtsCtx7,
 				(const u32*)RTS_RAM_WINDOW(INGAME_MENU_EXT_LOCATION + RTS_STAGING_WRM7_OFFSET),
@@ -83,17 +99,14 @@ typedef struct {
 	u32 size;
 } rtsRamRange;
 
-// V0 memory policy (retail NTR game): the game's 4 MiB arena, minus the top
-// 16 KiB. If the NTR 4 MiB view is mirrored - which is what makes the game's
-// 0x024xxxxx-0x027xxxxx addresses work at all - then 0x023FC000-0x02400000 is
-// the same memory as 0x027FC000-0x02800000, which holds ce9 (12 KiB), the
-// shared mailbox, the unpatched-function table, the exception stack and the
-// NDS header. Restoring it would overwrite the running cardengine and the
-// mailbox mid-protocol. Excluding it costs at most 16 KiB of game state if
-// the view turns out to be flat instead.
-#define RTS_MRAM_TOP_RESERVED 0x4000
+// V0 memory policy (retail NTR game): the game's 4 MiB arena. Measured on
+// hardware (the RAM MIRROR probe reports NO), the NTR view is flat, so this
+// does not alias the cardengine/mailbox/header at 0x027Fxxxx and the ARM7's
+// 0x0C000000 window is a straight offset for every address used here.
+// Everything the ARM7 still cannot reach - DTCM above all - goes through
+// ARM9 staging instead.
 static const rtsRamRange rtsRamRanges[] = {
-	{ RTS_SEC_MRAM, 0x02000000, 0x400000 - RTS_MRAM_TOP_RESERVED },
+	{ RTS_SEC_MRAM, 0x02000000, 0x400000 },
 };
 #define RTS_RAM_RANGE_COUNT (sizeof(rtsRamRanges) / sizeof(rtsRamRanges[0]))
 
@@ -288,10 +301,13 @@ void rtsLoadState(void) {
 				dst = (u8*)&rtsCtx7;
 				break;
 			case RTS_SEC_DTCM:
+				// The ext region was paged out to pagefile.sys before this
+				// command; the resume trampoline lifts the image from here
+				// into DTCM and then lets us page the region back in
+				dst = RTS_RAM_WINDOW(INGAME_MENU_EXT_LOCATION + RTS_STAGING_DTCM_OFFSET);
+				break;
 			case RTS_SEC_ITCM:
-				// Staging into that region would clobber memory that can no
-				// longer be paged back in once the menu has exited
-				// (see RTS_RESTORE_TCM in rts_state.h)
+				// ITCM holds code, which is identical across a save/load pair
 				continue;
 			case RTS_SEC_WRM7:
 			case RTS_SEC_WRA7:

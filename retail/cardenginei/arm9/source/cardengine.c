@@ -1621,7 +1621,7 @@ void myIrqHandlerVcount(void) {
 // The M4 resume trampoline re-enters at this call boundary with a non-zero
 // return so the IRQ path unwinds through the restored save-time stack.
 extern int rtsCaptureContext(u32* ctx);
-extern void rtsResumeArm9(u32* ctx);
+extern void rtsResumeArm9(u32* ctx, vu32* mailbox);
 static rtsCpuContext rtsCtx9;
 
 static void rtsMenuArm9(void) {
@@ -1636,7 +1636,7 @@ static void rtsMenuArm9(void) {
 			// the menu is fully unloaded. Copy the staged TCM images in
 			// and longjmp into the save-time context - never returns.
 			sharedAddr[3] = 0;
-			rtsResumeArm9((u32*)&rtsCtx9);
+			rtsResumeArm9((u32*)&rtsCtx9, sharedAddr);
 		}
 	}
 	// non-zero return: resumed from a loaded state; fall straight back

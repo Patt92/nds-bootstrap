@@ -54,18 +54,17 @@ This is a proof of concept, not a finished feature:
 
 - **DSi/3DS only, retail DS games only.** DSiWare, TWL-native games, B4DS/flashcard
   mode and SDK5 games are rejected. Wi-Fi and Download Play are out of scope.
-- **Only CPU state and main RAM are restored.** Video, VRAM, audio, timers and DMA
-  are not reconstructed yet, so a loaded state will very likely have broken
-  graphics or sound even when the game keeps running.
-- **ARM7 memory and both TCMs are captured but not restored yet** — the ARM7 region
-  map still needs verification on hardware, and staging the TCM images would clobber
-  memory that cannot be paged back in once the menu has exited. A resumed console
-  keeps its current ARM7 memory and TCM contents.
+- **CPU state, main RAM and the ARM9 DTCM are restored.** VRAM, audio, timers and DMA
+  are not, so a loaded state comes back with corrupted graphics (they repair
+  themselves on the next room change) and noise instead of sound.
+- **ARM7 memory is captured but not restored yet** — that region map still needs
+  verification on hardware. ITCM is not restored either, as it holds code that does
+  not change between a save and a load.
 - States are tied to the exact ROM and to a specific build of this fork.
 - **Barely tested on real hardware.** On a New 3DS with Resident Evil: Deadly Silence,
-  saving works and the game keeps running. Loading does take effect, but only
-  survives if little changed since the snapshot — otherwise it crashes or corrupts
-  the graphics. Do not use it on a save file you care about.
+  saving works and the game keeps running, and loading resumes the game. Expect
+  corrupted graphics and sound after a load, and expect crashes. Do not use it on a
+  save file you care about.
 
 # ROM Compatibility
 
