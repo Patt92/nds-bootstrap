@@ -54,9 +54,11 @@ This is a proof of concept, not a finished feature:
 
 - **DSi/3DS only, retail DS games only.** DSiWare, TWL-native games, B4DS/flashcard
   mode and SDK5 games are rejected. Wi-Fi and Download Play are out of scope.
-- **CPU state, main RAM, the ARM9 DTCM, VRAM, palettes and OAM are restored.** Timers,
-  DMA and the sound channels are not: the SPU's per-channel registers are write-only,
-  so channels are stopped on load and stay silent until the game restarts its music.
+- **CPU state, main RAM and the ARM9 DTCM are restored.** VRAM, palettes, OAM, timers,
+  DMA and audio are not, so a loaded state comes back with wrong sprites and broken
+  sound; both repair themselves once the game redraws or changes room. Code for the
+  video and audio state exists but froze the console on hardware and is disabled
+  (`RTS_ENABLE_VIDEO`).
 - **ARM7 memory is captured but not restored yet** — that region map still needs
   verification on hardware. ITCM is not restored either, as it holds code that does
   not change between a save and a load.

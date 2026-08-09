@@ -12,6 +12,11 @@
 #define RTS_CMD_EXT_RESTORE 0x54534552 // 'REST' - page the ext region back in
 #define RTS_CMD_DIAG        0x41494453 // 'SDIA' - report what the last load did
 
+// M6/M7 (VRAM, palettes, OAM, SPU) froze the console on hardware and is off
+// until that is localized. With this at 0 the build behaves like 802da05:
+// the resume works, sprites and sound come back wrong but self-repair.
+#define RTS_ENABLE_VIDEO 0
+
 // Generic section transfer, so the ARM9 can hand over things the ARM7 cannot
 // reach itself (VRAM banks have to be mapped to the CPU one at a time).
 // sharedAddr[0] = section fourcc, sharedAddr[2] = size in/out, payload in the

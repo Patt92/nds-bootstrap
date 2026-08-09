@@ -628,6 +628,34 @@ for silence until the game restarts its music, which it does on its own.
 
 Save now costs ten extra mailbox round trips and load eleven, roughly a frame each.
 
+## 10h. Hardware test 7 — M6/M7 froze the console, disabled
+
+The VRAM/palette/OAM/SPU work of §10g **froze the console completely**, where the
+build before it resumed correctly with broken sprites and sound. `RTS_ENABLE_VIDEO`
+is therefore **0**: the default build behaves exactly like 802da05 again, and the code
+stays in the tree behind the flag.
+
+That change was too large to ship untested in one step — it added ten mailbox round
+trips per save and eleven per load, VRAM bank remapping, a new section protocol and
+an SPU write, all at once, with no way to tell them apart from the outcome. Splitting
+it is the fix, not more analysis.
+
+Candidates, in the order they should be tested, one at a time:
+
+1. **A deadlock in the new round trips.** `rtsMailbox` spins until the ARM7 hands
+   `sharedAddr[4]` back. A complete freeze with no exception screen is what a
+   CPU-to-CPU deadlock looks like, and this is the only new place both sides wait.
+2. **The SPU write.** `0x04000400` is an ARM7-only register block; the load path
+   writes it from the ARM9. That should be ignored rather than fatal, but it is new,
+   trivially removable, and untested.
+3. **VRAM bank remapping while the menu is on screen.** The overlay draws from bank H
+   and the restore switches banks to LCDC underneath it.
+4. **The bank table.** A wrong size or LCDC address would copy past a bank's end.
+
+The next step is to re-enable only one of these at a time. The section transfer
+protocol itself can be tested without touching video at all: save with it enabled but
+restore nothing, which exercises the round trips in isolation.
+
 ## 11. Status & how to test
 
 Implemented on this branch: M0-M4 (M4 = experimental resume; video/audio/timers/DMA are NOT

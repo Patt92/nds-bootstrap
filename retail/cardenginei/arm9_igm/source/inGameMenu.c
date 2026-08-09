@@ -507,6 +507,7 @@ static int rtsDetectMirror(void) {
 }
 
 #ifndef B4DS
+#if RTS_ENABLE_VIDEO
 // The nine VRAM banks. Only what is mapped to the CPU can be copied, so each
 // bank is switched to LCDC (VRAMCNT = enable, MST 0) one at a time, which is
 // the same trick the screenshot code uses. Note 0x04000247 is WRAMCNT, not a
@@ -525,6 +526,7 @@ static const struct { u32 cnt; u32 lcdc; u32 size; } rtsVramBanks[9] = {
 
 #define RTS_STAGING_BANK ((u8*)INGAME_MENU_EXT_LOCATION + RTS_STAGING_BANK_OFFSET)
 #define RTS_STAGING_VMEM ((u8*)INGAME_MENU_EXT_LOCATION + RTS_STAGING_VMEM_OFFSET)
+#endif
 
 // Runs a mailbox command and waits for the ARM7 to hand it back
 static void rtsMailbox(u32 cmd) {
@@ -535,6 +537,7 @@ static void rtsMailbox(u32 cmd) {
 	}
 }
 
+#if RTS_ENABLE_VIDEO
 static void rtsSectionCmd(u32 cmd, u32 fourcc, u32 size) {
 	sharedAddr[0] = fourcc;
 	sharedAddr[2] = size;
@@ -611,6 +614,7 @@ static void rtsLoadVideo(u8 *vramCCr, u8 *vramHCr) {
 		*(vu32*)(0x04000400 + i * 16) &= ~(1u << 31);
 	}
 }
+#endif // RTS_ENABLE_VIDEO
 #endif
 
 static void rtsCommand(u32 cmd, bool quick, u8 *vramCCr, u8 *vramHCr) {
@@ -641,19 +645,25 @@ static void rtsCommand(u32 cmd, bool quick, u8 *vramCCr, u8 *vramHCr) {
 		rtsMailbox(cmd);
 
 		if (cmd == RTS_CMD_SAVE) {
+			#if RTS_ENABLE_VIDEO
 			if (sharedAddr[3] == RTS_OK) {
 				rtsSaveVideo();
+			}
+			#endif
+			if (sharedAddr[3] == RTS_OK) {
 				rtsMailbox(RTS_CMD_FINISH);
 			}
 			rtsMailbox(RTS_CMD_EXT_RESTORE); // ROM cache back in place
 			DC_InvalidateRange((char*)INGAME_MENU_EXT_LOCATION, 0x40000);
 		} else {
+			#if RTS_ENABLE_VIDEO
 			if (sharedAddr[3] == RTS_OK) {
 				rtsLoadVideo(vramCCr, vramHCr);
-				// DTCM goes into staging last: the resume trampoline reads it
-				// from there after the menu is gone
+				// DTCM goes into staging last: the resume trampoline reads
+				// it from there after the menu is gone
 				rtsSectionCmd(RTS_CMD_SEC_R, RTS_SEC_DTCM, 0);
 			}
+			#endif
 			// RAM now holds the snapshot; no cached line may survive it.
 			// Only invalidate - cleaning would write pre-load data back.
 			// Never reached unless the command actually ran: invalidating
