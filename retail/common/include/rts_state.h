@@ -35,11 +35,10 @@
 #define RTS_ERR_UNSUPPORTED 7 // game layout outside the V0 scope (SDK5)
 
 #define RTS_MAGIC          0x5353424E // 'NBSS'
-#define RTS_FORMAT_VERSION 0
+#define RTS_FORMAT_VERSION 1
 
 // Section IDs
 #define RTS_SEC_MRAM 0x4D41524D // 'MRAM' main RAM 0x02000000 (game arena)
-#define RTS_SEC_WRK9 0x394B5257 // 'WRK9' 0x027E0000 work/DTCM-mapped window
 #define RTS_SEC_CPU9 0x39555043 // 'CPU9' ARM9 context
 #define RTS_SEC_CPU7 0x37555043 // 'CPU7' ARM7 context
 #define RTS_SEC_DTCM 0x4D435444 // 'DTCM' ARM9 data TCM (16 KiB, ARM9-staged)
@@ -50,6 +49,14 @@
                                 //        (64 KiB @ 0x037F0000, above ce7's 61 KiB
                                 //         at 0x037E0400 and the cheat engine)
 
+// 0x027E0000 is the ARM9's DTCM, not a main-RAM window: both hardware crash
+// dumps put the game's stack there (0x027E3AF4 / 0x027E3A24, with r3 pointing
+// at the 0x027E4000 DTCM end). DTCM is CPU-internal and invisible to the ARM7,
+// and the 0x0C7E0000 window an earlier 'WRK9' section used for it addressed an
+// unrelated physical location entirely. DTCM is captured through ARM9 staging
+// (RTS_SEC_DTCM) instead; the game's own 0x027Exxxx accesses are covered by
+// MRAM via the NTR 4 MiB mirror.
+//
 // The ARM7-side memory map is not settled yet: the captured contexts show
 // stacks in both 0x037F0000+ and 0x03800000+ depending on SDK version, and
 // both regions would have to be copied from a stack-free trampoline (the

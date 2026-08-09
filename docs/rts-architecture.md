@@ -415,12 +415,61 @@ load-path problems are still open and either could produce the same symptom:
 
 Until (2) is answered, further restore work is guesswork.
 
+## 10c. Hardware test 2 (2026-08-09, build f56a4aa) — DTCM identified
+
+**Loading worked once**, when the state was saved and loaded without leaving the
+room; every other attempt ends in a Data Abort. That pattern is the diagnosis.
+
+Second dump: PC `0x0210958C`, faulting address `0`, `sp = 0x027E3A24`,
+`r3 = 0x027E4000`, `r8 = 0x04001000` and `r12 = 0x04000000` (both display engine
+I/O bases). First dump: `sp = 0x027E3AF4`. Both stack pointers sit in
+`0x027E0000`-`0x027E4000` and `r3` points exactly at the end of that range — that is
+the **ARM9 DTCM**, at the DS SDK's usual mapping, 16 KiB.
+
+**What that means:**
+
+- The game's ARM9 stack lives in DTCM. The captured context's `sp`/`lr` therefore
+  point into DTCM, and DTCM is *not* restored (`RTS_RESTORE_TCM 0`). After a load the
+  CPU resumes onto a stack whose contents are from *now* instead of from save time.
+  Save and load in the same spot → the stack happens to hold nearly the same frames →
+  the resume survives. Change rooms in between → the frames differ → the return path
+  unwinds into the wrong place. **Restoring DTCM is the missing piece for M4**, not
+  video state.
+- The removed `WRK9` section (`0x027E0000` + `0x1C000`) started exactly at the DTCM
+  base. DTCM is CPU-internal and invisible to the ARM7, so that section never
+  captured DTCM; the `0x0C7E0000` window it used addresses an unrelated physical
+  location, into which every load wrote 112 KiB. Removed, and the format version
+  bumped to 1 so older state files are rejected.
+
+**Still blocking, and now the single most important open question:** whether the NTR
+4 MiB view is mirrored. Every ARM7-side access goes through
+`RTS_RAM_WINDOW(addr) = addr - 0x02000000 + 0x0C000000`, which is only correct for
+addresses inside the first 4 MiB. The staging slots
+(`INGAME_MENU_EXT_LOCATION + 0x34000/0x38000` = `0x026EC000`/`0x026F8000`) are above
+that. If the mirror is active they alias into the first 4 MiB and the window
+addresses used for them are wrong — which would mean the DTCM/ITCM images in the
+state file are garbage, and that the staging writes hit the wrong memory. Both
+readings of upstream's behaviour (pagefile page-out of `INGAME_MENU_EXT_LOCATION`)
+are consistent with either answer, so it has to be measured.
+
+The build therefore prints `RAM MIRROR: YES/NO/?` on the save/load result screen: it
+compares three spread-out windows of live game RAM against their `+4 MiB` aliases,
+read-only, with the MPU opened the same way the RAM viewer does it. `?` means every
+probed word was zero, i.e. inconclusive.
+
+Once that is answered:
+- **mirror active** → fix `RTS_RAM_WINDOW` to mask into the 4 MiB arena, then restore
+  DTCM from the trampoline (16 KiB, staged after the MRAM restore so it survives it,
+  with an ARM9→ARM7 handshake to repair the 16 KiB of game RAM underneath).
+- **flat** → the window is already correct, and DTCM restore only needs the
+  trampoline copy plus the page-out bracket the save path already uses.
+
 ## 11. Status & how to test
 
 Implemented on this branch: M0-M4 (M4 = experimental resume; video/audio/timers/DMA are NOT
 restored yet, so post-resume glitches are expected — M5+ is the hardening phase), plus
-configurable quick save/load hotkeys. On hardware, saving works and loading crashes;
-see §10b.
+configurable quick save/load hotkeys. On hardware, saving works and loading succeeds
+only when nothing changed in between; see §10b and §10c.
 
 Build: `make package-nightly` under devkitARM, or the same container CI uses:
 

@@ -83,14 +83,12 @@ typedef struct {
 	u32 size;
 } rtsRamRange;
 
-// V0 memory policy (retail NTR game):
-// - MRAM: the game's 4 MiB arena.
-// - WRK9: the 0x027E0000 work window (SDK<5 DTCM mapping/work area), ending
-//   at 0x027FC000 so the cardengine, mailbox, header and bootstrap params
-//   are never captured or restored (see docs/rts-architecture.md §4).
+// V0 memory policy (retail NTR game): the game's 4 MiB arena, which through
+// the NTR 4 MiB mirror also covers the 0x024xxxxx-0x027xxxxx addresses the
+// game uses. Everything the ARM7 cannot reach this way (DTCM in particular)
+// goes through ARM9 staging instead.
 static const rtsRamRange rtsRamRanges[] = {
 	{ RTS_SEC_MRAM, 0x02000000, 0x400000 },
-	{ RTS_SEC_WRK9, 0x027E0000, 0x1C000 },
 };
 #define RTS_RAM_RANGE_COUNT (sizeof(rtsRamRanges) / sizeof(rtsRamRanges[0]))
 
@@ -278,7 +276,6 @@ void rtsLoadState(void) {
 		u8* dst;
 		switch (section->fourcc) {
 			case RTS_SEC_MRAM:
-			case RTS_SEC_WRK9:
 			case RTS_SEC_CPU9:
 				dst = RTS_RAM_WINDOW(section->targetAddr);
 				break;

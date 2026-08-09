@@ -479,6 +479,33 @@ static const unsigned char* rtsResultText(u32 res) {
 
 u32 getDtcmBase(void);
 
+// Is the NTR 4 MiB view mirrored? Everything the ARM7 does through its
+// 0x0C000000 window depends on the answer: with the mirror active, the game's
+// 0x024xxxxx-0x027xxxxx addresses are aliases of the first 4 MiB, and the
+// window addresses used for them today point somewhere else entirely.
+// Read-only, so this cannot disturb the running game.
+// Returns 1 = mirrored, 0 = flat, -1 = inconclusive (only zeroes seen).
+static int rtsDetectMirror(void) {
+	static const u32 probes[3] = {0x02100000, 0x02234000, 0x023A8000};
+	bool sawData = false;
+
+	(*changeMpu)(); // the +4 MiB alias may be outside the game's MPU regions
+	for (int p = 0; p < 3; p++) {
+		const vu32 *a = (const vu32*)probes[p];
+		const vu32 *b = (const vu32*)(probes[p] + 0x400000);
+		for (int i = 0; i < 8; i++) {
+			if (a[i] != 0) sawData = true;
+			if (a[i] != b[i]) {
+				(*revertMpu)();
+				return 0;
+			}
+		}
+	}
+	(*revertMpu)();
+
+	return sawData ? 1 : -1;
+}
+
 // Runs a mailbox command and waits for the ARM7 to hand it back
 static void rtsMailbox(u32 cmd) {
 	sharedAddr[4] = cmd;
@@ -542,9 +569,16 @@ static void rtsCommand(u32 cmd, bool quick) {
 	clearScreen(false);
 	printCenter(15, 10, rtsResultText(res), res == RTS_OK ? FONT_LIME : FONT_RED, false);
 
+	// Diagnostic for the open memory-map question (see docs/rts-architecture.md)
+	const int mirror = rtsDetectMirror();
+	print(1, 14, (const unsigned char*)"RAM MIRROR:", FONT_LIGHT_GRAY, false);
+	print(13, 14, mirror == 1 ? (const unsigned char*)"YES"
+	            : mirror == 0 ? (const unsigned char*)"NO"
+	                          : (const unsigned char*)"?", FONT_LIGHT_BLUE, false);
+
 	if (quick) {
 		// Hotkey path: show the result briefly, then leave on our own
-		for (int i = 0; i < 60; i++) {
+		for (int i = 0; i < 90; i++) {
 			while (REG_VCOUNT != 191) mySwiDelay(100);
 			while (REG_VCOUNT == 191) mySwiDelay(100);
 		}

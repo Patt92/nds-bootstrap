@@ -63,8 +63,8 @@ This is a proof of concept, not a finished feature:
   keeps its current ARM7 memory and TCM contents.
 - States are tied to the exact ROM and to a specific build of this fork.
 - **Barely tested on real hardware.** On a New 3DS with Resident Evil: Deadly Silence,
-  saving works and the game keeps running; loading crashed and is still being worked
-  on. Expect crashes, and do not use it on a save file you care about.
+  saving works and the game keeps running; loading has succeeded once but normally
+  crashes. Expect crashes, and do not use it on a save file you care about.
 
 # ROM Compatibility
 
