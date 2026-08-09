@@ -54,18 +54,17 @@ This is a proof of concept, not a finished feature:
 
 - **DSi/3DS only, retail DS games only.** DSiWare, TWL-native games, B4DS/flashcard
   mode and SDK5 games are rejected. Wi-Fi and Download Play are out of scope.
-- **Loading is disabled in this build** (`RTS_ENABLE_LOAD`). Saving works; the
-  restore path still writes its staging area into nds-bootstrap's ROM cache, see
-  `docs/rts-architecture.md`.
 - **Only CPU state and main RAM are restored.** Video, VRAM, audio, timers and DMA
   are not reconstructed yet, so a loaded state will very likely have broken
   graphics or sound even when the game keeps running.
-- **ARM7 memory is captured but not restored yet** — the region map still needs
-  verification on hardware, so a resumed ARM7 keeps its current memory.
+- **ARM7 memory and both TCMs are captured but not restored yet** — the ARM7 region
+  map still needs verification on hardware, and staging the TCM images would clobber
+  memory that cannot be paged back in once the menu has exited. A resumed console
+  keeps its current ARM7 memory and TCM contents.
 - States are tied to the exact ROM and to a specific build of this fork.
-- **Barely tested on real hardware.** One session on a New 3DS with Resident Evil:
-  Deadly Silence found (and fixed) a crash in the save path; nothing beyond that has
-  been validated. Expect crashes, and do not use it on a save file you care about.
+- **Barely tested on real hardware.** On a New 3DS with Resident Evil: Deadly Silence,
+  saving works and the game keeps running; loading crashed and is still being worked
+  on. Expect crashes, and do not use it on a save file you care about.
 
 # ROM Compatibility
 

@@ -473,7 +473,6 @@ static const unsigned char* rtsResultText(u32 res) {
 		case RTS_ERR_VERSION:    return (const unsigned char*)"Incompatible state version";
 		case RTS_ERR_CRC:        return (const unsigned char*)"State file is corrupted";
 		case RTS_ERR_UNSUPPORTED: return (const unsigned char*)"Not supported for this game";
-		case RTS_ERR_LOAD_DISABLED: return (const unsigned char*)"Loading disabled in this build";
 		default:                 return (const unsigned char*)"Unknown error";
 	}
 }
@@ -492,9 +491,7 @@ static void rtsMailbox(u32 cmd) {
 static void rtsCommand(u32 cmd, bool quick) {
 	sharedAddr[3] = 0xFFFFFFFF;
 
-	if (cmd == RTS_CMD_LOAD && !RTS_ENABLE_LOAD) {
-		sharedAddr[3] = RTS_ERR_LOAD_DISABLED;
-	} else if (cmd == RTS_CMD_SAVE) {
+	if (cmd == RTS_CMD_SAVE) {
 		// The staging area sits inside the ROM cache, so it has to be paged
 		// out to pagefile.sys first and read back afterwards - exactly what
 		// the screenshot path does with the same region. Without this the

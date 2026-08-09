@@ -286,11 +286,11 @@ void rtsLoadState(void) {
 				dst = (u8*)&rtsCtx7;
 				break;
 			case RTS_SEC_DTCM:
-				dst = RTS_RAM_WINDOW(INGAME_MENU_EXT_LOCATION + RTS_STAGING_DTCM_OFFSET);
-				break;
 			case RTS_SEC_ITCM:
-				dst = RTS_RAM_WINDOW(INGAME_MENU_EXT_LOCATION + RTS_STAGING_ITCM_OFFSET);
-				break;
+				// Staging into that region would clobber memory that can no
+				// longer be paged back in once the menu has exited
+				// (see RTS_RESTORE_TCM in rts_state.h)
+				continue;
 			case RTS_SEC_WRM7:
 			case RTS_SEC_WRA7:
 			case RTS_SEC_WRMS:

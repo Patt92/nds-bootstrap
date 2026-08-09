@@ -367,47 +367,60 @@ save→resume→load→resume ×10 without reboot; later: load a state after ful
 10. **Shared WRAM**: only the slice below the ce7/cheat footprint (0x400 bytes) is
    live-restored; the full 32 KiB is captured in the file for later use.
 
-## 10b. Hardware test 1 (2026-08-09, New 3DS, RE:DS) — save path crash, diagnosed
+## 10b. Hardware test 1 (2026-08-09, New 3DS, RE:DS)
 
-**Symptom:** Data Abort shortly after `Save State`, PC `0x020F3FB0` (game code),
-faulting address `0`, `r1 = 0x43484152` ("RAHC" — the CHAR section magic of a NITRO
-graphics resource), `r2 = 0x6000001F` (a VRAM destination). The game was parsing a
-graphics resource and followed a NULL pointer.
+**Saving works.** A state is written and the game keeps running afterwards, which
+makes M2/M3 (context capture + ~4.5 MiB serialization without destabilizing the
+session) plausible on hardware for the first time.
 
-**Cause:** the TCM staging area is `INGAME_MENU_EXT_LOCATION + 0x34000/0x38000`
-(`0x026EC000`-`0x026F8000`), which lies inside the ROM cache
-(`CACHE_ADRESS_START = ROM_LOCATION = 0x0C3EC000`, size `0xBE0000`). The save path
-wrote 48 KiB of TCM images straight into it. Upstream never touches that region
-without paging it out to `pagefile.sys` first (`prepareScreenshot()`) and reading it
-back (`saveScreenshot()`); the RTS code skipped both. The game then read TCM bytes
-where it expected ROM data — exactly the observed resource-parse crash.
+**Loading crashed:** Data Abort, PC `0x020F3FB0` (game code), faulting address `0`,
+`r1 = 0x43484152` ("RAHC" — the CHAR section magic of a NITRO graphics resource),
+`r2 = 0x6000001F` (a VRAM destination). The game was parsing a graphics resource and
+followed a NULL pointer, i.e. it read data that was not what it expected to be there.
 
-**Fix:** the save path now brackets staging with the same page-out/page-in the
-screenshot path uses (`SSPP` before staging, new `REST` command after the state was
-written, plus `DC_InvalidateRange` on the region), and flushes the ARM9 cache before
-the ARM7 reads the region.
+**One definite bug found, present in both paths:** the TCM staging area is
+`INGAME_MENU_EXT_LOCATION + 0x34000/0x38000` (`0x026EC000`-`0x026F8000`). Upstream
+never touches that region without paging it out to `pagefile.sys` first
+(`prepareScreenshot()`) and reading it back afterwards (`saveScreenshot()`) — it is
+memory the running system owns. The RTS code wrote 48 KiB of TCM images into it with
+no page-out, on the save path (ARM9 staging) and on the load path (ARM7 writing the
+images back into staging). Anything that later read that memory would see TCM bytes.
 
-**Consequence for loading:** the load path needs the staged images to survive until
-the resume trampoline runs — which happens *after* the menu has exited, so there is
-no point at which the region could be paged back in. Loading a state would therefore
-leave the ROM cache holding TCM images. `RTS_ENABLE_LOAD` is **0** until staging has
-a home outside the ROM cache; `Load State` reports "Loading disabled in this build".
+**Fixes applied:**
+- the save path now brackets staging with the same page-out/page-in
+  (`SSPP` before staging, new `REST` command afterwards, plus `DC_InvalidateRange`),
+  and flushes the ARM9 cache before the ARM7 reads the region;
+- the load path no longer stages anything: `RTS_RESTORE_TCM` is **0**, so TCM images
+  are captured into the state file but not restored, and the resume trampoline no
+  longer copies them. The load path could not page the region back in anyway — the
+  trampoline runs after the menu has already exited.
+- a refused command no longer runs `rtsCacheInvalidate()`, which would have dropped
+  still-dirty game cache lines without cleaning them first.
 
-**Also unresolved (blocks the load path):** the crash dump shows the game's ARM9
-stack at `sp = 0x027E3AF4`, i.e. inside the `WRK9` window this code both captures and
-live-restores. Two problems follow: (a) restoring the stack the ARM9 is currently
-executing on violates the same rule as §6 and must be deferred to the trampoline, and
-(b) it is not established whether the game's `0x027Exxxx` accesses and the ARM7's
-`0x0C7Exxxx` window address the same physical memory — the mirroring behaviour of the
-NTR 4 MiB view on DSi/3DS hardware needs to be measured, not reasoned about, before
-any further restore work. The IGM RAM viewer can settle it directly by comparing
-`0x023E0000` against `0x027E0000` in a running game.
+**Not established:** whether that bug was *the* cause of the load crash. Two other
+load-path problems are still open and either could produce the same symptom:
+
+1. **The ARM9's stack may be inside the live-restored `WRK9` window.** The dump shows
+   the game's `sp = 0x027E3AF4`, inside `0x027E0000`-`0x027FC000`. Restoring memory
+   the ARM9 is currently executing on violates the rule in §6 and would have to be
+   deferred to the trampoline.
+2. **The address-window assumption is unverified.** `WRK9`/`MRAM` are read and written
+   by the ARM7 through the `0x0C000000` window. Whether the game's `0x027Exxxx`
+   accesses and the ARM7's `0x0C7Exxxx` window reach the same physical memory depends
+   on the NTR 4 MiB mirror behaviour on DSi/3DS hardware, which this design got wrong
+   twice already. It has to be measured, not reasoned about: the IGM RAM viewer can
+   settle it by comparing `0x023E3AF4` with `0x027E3AF4` in a running game. If both
+   show the same bytes, the mirror is active and every ARM7-side `0x0C7Exxxx` access
+   in this code addresses the wrong memory.
+
+Until (2) is answered, further restore work is guesswork.
 
 ## 11. Status & how to test
 
 Implemented on this branch: M0-M4 (M4 = experimental resume; video/audio/timers/DMA are NOT
 restored yet, so post-resume glitches are expected — M5+ is the hardening phase), plus
-configurable quick save/load hotkeys.
+configurable quick save/load hotkeys. On hardware, saving works and loading crashes;
+see §10b.
 
 Build: `make package-nightly` under devkitARM, or the same container CI uses:
 

@@ -11,17 +11,18 @@
 #define RTS_CMD_LOAD 0x444F4C53 // 'SLOD'
 #define RTS_CMD_EXT_RESTORE 0x54534552 // 'REST' - page the ext region back in
 
-// The staging area used for the TCM images lives inside the ROM cache
-// (INGAME_MENU_EXT_LOCATION is inside CACHE_ADRESS_START + size). Upstream
-// always pages that region out to pagefile.sys before touching it and reads
-// it back afterwards - see prepareScreenshot()/saveScreenshot(). The save
-// path does the same. The load path cannot: it needs the staged images to
-// survive until the resume trampoline runs, which is after the menu has
-// already exited, so there is no point left at which the region could be
-// paged back in. Until staging has a home outside the ROM cache, loading is
-// disabled - it would leave the ROM cache holding TCM images and the game
-// would read garbage where it expects ROM data.
-#define RTS_ENABLE_LOAD 0
+// INGAME_MENU_EXT_LOCATION, used to stage the TCM images, is memory that
+// belongs to the running system: upstream never touches it without paging it
+// out to pagefile.sys first and reading it back afterwards - see
+// prepareScreenshot()/saveScreenshot(). The save path now does the same.
+//
+// The load path cannot: it would need the staged images to survive until the
+// resume trampoline, which runs after the menu has already exited, so there
+// is no point left at which the region could be paged back in. It therefore
+// does not stage anything at all - the TCMs are captured into the state file
+// but not restored, like ARM7 memory above. A resumed ARM9 keeps its current
+// TCM contents.
+#define RTS_RESTORE_TCM 0
 
 // Result codes reported by ARM7 in sharedAddr[3] after a RTS command
 #define RTS_OK             0
@@ -32,7 +33,6 @@
 #define RTS_ERR_VERSION    5
 #define RTS_ERR_CRC        6
 #define RTS_ERR_UNSUPPORTED 7 // game layout outside the V0 scope (SDK5)
-#define RTS_ERR_LOAD_DISABLED 8 // see RTS_ENABLE_LOAD
 
 #define RTS_MAGIC          0x5353424E // 'NBSS'
 #define RTS_FORMAT_VERSION 0
