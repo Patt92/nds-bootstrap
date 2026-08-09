@@ -404,4 +404,4 @@ On hardware (3DS, TWiLight Menu++, RE:DS):
    is then torn (expected pre-M5), but load must report success and CRCs must hold.
 3. M3 check: open/close the menu repeatedly — capture must never destabilize a session.
 4. M4 check: save, play 30 s, load — program flow must jump back (screen may glitch until
-   M6). After a freeze, the last stage marker is at file offset 0x38 (`stageMarker`).
+   M6). After a freeze, the last stage marker is at file offset 0x2C (`stageMarker`).
