@@ -71,3 +71,54 @@ BEGIN_ASM_FUNC DC_InvalidateRange
 	cmp	r0, r1
 	blt	.invalidate
 	bx	lr
+
+#define DCACHE_SIZE	0x1000
+
+//---------------------------------------------------------------------------------
+	.arm
+//---------------------------------------------------------------------------------
+BEGIN_ASM_FUNC rtsCacheFlush
+/*---------------------------------------------------------------------------------
+	Experimental RTS: invalidate icache, clean+invalidate entire dcache.
+	Used before the ARM7 serializes main RAM so every dirty line is visible.
+	Same sequence as cacheFlush in the arm9 cardengine.
+---------------------------------------------------------------------------------*/
+	stmfd	sp!, {r7-r8,r11}
+	ldr	r8, =0x4000208		@ REG_IME
+	ldr	r11, [r8]
+	mov	r7, #0
+	str	r7, [r8]
+
+	mcr	p15, 0, r7, c7, c5, 0	@ invalidate entire icache
+
+	mov	r1, #0
+.rtsFlushOuter:
+	mov	r0, #0
+.rtsFlushInner:
+	orr	r2, r1, r0		@ generate segment and line address
+	mcr	p15, 0, r7, c7, c10, 4	@ drain write buffer
+	mcr	p15, 0, r2, c7, c14, 2	@ clean and flush the line
+	add	r0, r0, #CACHE_LINE_SIZE
+	cmp	r0, #DCACHE_SIZE/4
+	bne	.rtsFlushInner
+	add	r1, r1, #0x40000000
+	cmp	r1, #0
+	bne	.rtsFlushOuter
+
+	mcr	p15, 0, r7, c7, c10, 4	@ drain write buffer
+
+	str	r11, [r8]
+	ldmfd	sp!, {r7-r8,r11}
+	bx	lr
+
+//---------------------------------------------------------------------------------
+BEGIN_ASM_FUNC rtsCacheInvalidate
+/*---------------------------------------------------------------------------------
+	Experimental RTS: invalidate icache and dcache without cleaning.
+	Used after the ARM7 restored RAM so no stale line survives.
+---------------------------------------------------------------------------------*/
+	mov	r0, #0
+	mcr	p15, 0, r0, c7, c5, 0	@ invalidate entire icache
+	mcr	p15, 0, r0, c7, c6, 0	@ invalidate entire dcache
+	mcr	p15, 0, r0, c7, c10, 4	@ drain write buffer
+	bx	lr

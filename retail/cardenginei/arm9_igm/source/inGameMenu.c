@@ -17,6 +17,8 @@
 
 void DC_InvalidateRange(const void *base, u32 size);
 void DC_FlushRange(const void *base, u32 size);
+void rtsCacheFlush(void);
+void rtsCacheInvalidate(void);
 
 #ifndef B4DS
 	#define MAX_BRIGHTNESS 5
@@ -476,11 +478,23 @@ static const unsigned char* rtsResultText(u32 res) {
 
 static void rtsCommand(u32 cmd) {
 	sharedAddr[3] = 0xFFFFFFFF;
+
+	// Every dirty ARM9 line must reach RAM before the ARM7 serializes it;
+	// on load it also drops lines that would mask the restored bytes
+	rtsCacheFlush();
+
 	sharedAddr[4] = cmd;
 	while (sharedAddr[4] == cmd) {
 		while (REG_VCOUNT != 191) mySwiDelay(100);
 		while (REG_VCOUNT == 191) mySwiDelay(100);
 	}
+
+	if (cmd == RTS_CMD_LOAD) {
+		// RAM now holds the snapshot; no cached line may survive it.
+		// Only invalidate - cleaning would write pre-load data back.
+		rtsCacheInvalidate();
+	}
+
 	const u32 res = sharedAddr[3];
 	sharedAddr[3] = 0;
 

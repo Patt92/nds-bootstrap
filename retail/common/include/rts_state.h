@@ -22,6 +22,20 @@
 #define RTS_MAGIC          0x5353424E // 'NBSS'
 #define RTS_FORMAT_VERSION 0
 
+// Section IDs
+#define RTS_SEC_MRAM 0x4D41524D // 'MRAM' main RAM 0x02000000 (game arena)
+#define RTS_SEC_WRK9 0x394B5257 // 'WRK9' 0x027E0000 work/DTCM-mapped window
+#define RTS_SEC_CPU9 0x39555043 // 'CPU9' ARM9 context (M3+)
+#define RTS_SEC_CPU7 0x37555043 // 'CPU7' ARM7 context (M3+)
+
+// Save/load stage markers (RTS_DEBUG, stored in header stageMarker)
+#define RTS_STAGE_HEADER  0x30445248 // 'HRD0'
+#define RTS_STAGE_RAM     0x314D4152 // 'RAM1'
+#define RTS_STAGE_CRC     0x32435243 // 'CRC2'
+#define RTS_STAGE_DONE    0x33454E44 // 'DNE3'
+#define RTS_STAGE_RESTORE 0x34545352 // 'RST4'
+#define RTS_STAGE_VERIFY  0x35465256 // 'VRF5'
+
 // State file size as allocated by the loader (fixed, written in place)
 #define RTS_FILE_SIZE 0x800000
 
