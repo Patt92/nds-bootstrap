@@ -592,13 +592,48 @@ DTCM and needs the same trampoline treatment, with staging that survives the pag
 restore. After that: VRAM/OAM/palettes (M6), which is what the graphical artefacts and
 their self-repair on a room change point at.
 
+## 10g. Hardware test 6 — the resume works; VRAM and audio implemented (M6/M7)
+
+Reported: **the state loads correctly.** Program flow, position and game state come
+back. What is broken is sprites and sound — and both self-repair: entering and leaving
+the settings screen redraws everything correctly, and the music recovers on a room
+change. That is precisely the M4-complete / M6-M7-missing picture, and it means the
+resume core (context capture, MRAM, DTCM, the trampolines) is done.
+
+**M6, implemented.** The ARM7 cannot read VRAM, and a bank can only be copied while
+it is mapped to the CPU, so the transfer is driven from the ARM9 one bank at a time
+using the same LCDC trick as the screenshot code: save `VRAMCNT`, write `0x80`
+(enable, MST 0), copy through the staging area, put `VRAMCNT` back. A generic
+section-transfer pair (`SECW`/`SECR`, fourcc in `sharedAddr[0]`, size in
+`sharedAddr[2]`) carries each bank, so the staging area only has to hold the largest
+bank (128 KiB) rather than all 656 KiB. Sections: `VRA0`-`VRA8` for banks A-I and
+`VMEM` for the palettes (2 KiB), OAM (2 KiB) and the nine `VRAMCNT` bytes. Note
+`0x04000247` is WRAMCNT, not a bank — H and I are at `0x248`/`0x249`.
+
+Two ordering traps handled:
+
+- The menu's own cleanup restores `BG_MAP_RAM_SUB`, `BG_PALETTE_SUB`, `BG_GFX_SUB`,
+  `VRAM_C_CR` and `VRAM_H_CR` from backups taken *before* the load, which would undo
+  part of the restore. The three memory backups are refreshed from the restored VRAM
+  so the cleanup becomes a no-op, and the two bank-mapping backups are handed the
+  restored values by pointer.
+- Each section type now has its own staging slot. The DTCM image has to survive until
+  the trampoline reads it, after the menu is gone, so it must not share a slot with
+  the bank transfers.
+
+**M7, partially.** The SPU's per-channel source, timer and length registers are
+write-only — the classic issue #143 problem — so a resumed channel cannot be told
+where it was. All 16 channels are stopped on load instead. That trades hanging noise
+for silence until the game restarts its music, which it does on its own.
+
+Save now costs ten extra mailbox round trips and load eleven, roughly a frame each.
+
 ## 11. Status & how to test
 
 Implemented on this branch: M0-M4 (M4 = experimental resume; video/audio/timers/DMA are NOT
 restored yet, so post-resume glitches are expected — M5+ is the hardening phase), plus
-configurable quick save/load hotkeys. On hardware, saving works and loading resumes
-the game; DTCM restore has just been added, VRAM and audio are still missing.
-See §10b-§10e.
+configurable quick save/load hotkeys, plus M6 (VRAM/palettes/OAM) and a partial M7.
+On hardware the resume itself works; see §10b-§10g.
 
 Build: `make package-nightly` under devkitARM, or the same container CI uses:
 

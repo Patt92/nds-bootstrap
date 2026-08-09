@@ -12,6 +12,14 @@
 #define RTS_CMD_EXT_RESTORE 0x54534552 // 'REST' - page the ext region back in
 #define RTS_CMD_DIAG        0x41494453 // 'SDIA' - report what the last load did
 
+// Generic section transfer, so the ARM9 can hand over things the ARM7 cannot
+// reach itself (VRAM banks have to be mapped to the CPU one at a time).
+// sharedAddr[0] = section fourcc, sharedAddr[2] = size in/out, payload in the
+// staging area. sharedAddr[2] comes back 0 if the section is not in the file.
+#define RTS_CMD_SEC_W  0x57434553 // 'SECW' append staging as a section
+#define RTS_CMD_SEC_R  0x52434553 // 'SECR' read a section into staging
+#define RTS_CMD_FINISH 0x4E494653 // 'SFIN' write the section table, mark valid
+
 // Packed into sharedAddr[0] by RTS_CMD_DIAG so the result screen can show
 // whether the last resume actually did what it was supposed to
 #define RTS_DIAG_HS_NONE    0 // no load resumed since boot
@@ -50,6 +58,8 @@
 #define RTS_SEC_DTCM 0x4D435444 // 'DTCM' ARM9 data TCM (16 KiB, ARM9-staged)
 #define RTS_SEC_ITCM 0x4D435449 // 'ITCM' ARM9 instruction TCM (32 KiB, ARM9-staged)
 #define RTS_SEC_WRM7 0x374D5257 // 'WRM7' ARM7-exclusive WRAM (64 KiB @ 0x03800000)
+#define RTS_SEC_VRAM 0x30415256 // 'VRA0'..'VRA8' - one VRAM bank each
+#define RTS_SEC_VMEM 0x4D454D56 // 'VMEM' - palettes, OAM and VRAMCNT_A-I
 #define RTS_SEC_WRMS 0x534D5257 // 'WRMS' shared WRAM as seen by ARM7 (32 KiB @ 0x03000000)
 #define RTS_SEC_WRA7 0x37415257 // 'WRA7' game ARM7 region in the DSi WRAM window
                                 //        (64 KiB @ 0x037F0000, above ce7's 61 KiB
@@ -100,6 +110,13 @@ typedef struct rtsCpuContext {
 // Staging areas inside INGAME_MENU_EXT_LOCATION (0x40000 bytes total;
 // 0x0-0x30200 is the screenshot area, unused while a RTS command runs.
 // The WRM7 image reuses the vramBak slot at 0x18200 during a load only.)
+// Bank images are handed over one at a time, so the buffer only has to hold
+// the largest bank (128 KiB); VMEM needs 2 KiB palette + 2 KiB OAM + VRAMCNT
+#define RTS_STAGING_BANK_OFFSET 0x00000
+#define RTS_STAGING_VMEM_OFFSET 0x20000
+#define RTS_VMEM_PAL_SIZE  0x800
+#define RTS_VMEM_OAM_SIZE  0x800
+#define RTS_VMEM_SIZE      (RTS_VMEM_PAL_SIZE + RTS_VMEM_OAM_SIZE + 16)
 #define RTS_STAGING_WRM7_OFFSET 0x18200
 #define RTS_STAGING_DTCM_OFFSET 0x34000
 #define RTS_STAGING_ITCM_OFFSET 0x38000

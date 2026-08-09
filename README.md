@@ -54,17 +54,17 @@ This is a proof of concept, not a finished feature:
 
 - **DSi/3DS only, retail DS games only.** DSiWare, TWL-native games, B4DS/flashcard
   mode and SDK5 games are rejected. Wi-Fi and Download Play are out of scope.
-- **CPU state, main RAM and the ARM9 DTCM are restored.** VRAM, audio, timers and DMA
-  are not, so a loaded state comes back with corrupted graphics (they repair
-  themselves on the next room change) and noise instead of sound.
+- **CPU state, main RAM, the ARM9 DTCM, VRAM, palettes and OAM are restored.** Timers,
+  DMA and the sound channels are not: the SPU's per-channel registers are write-only,
+  so channels are stopped on load and stay silent until the game restarts its music.
 - **ARM7 memory is captured but not restored yet** — that region map still needs
   verification on hardware. ITCM is not restored either, as it holds code that does
   not change between a save and a load.
 - States are tied to the exact ROM and to a specific build of this fork.
 - **Barely tested on real hardware.** On a New 3DS with Resident Evil: Deadly Silence,
-  saving works and the game keeps running, and loading resumes the game. Expect
-  corrupted graphics and sound after a load, and expect crashes. Do not use it on a
-  save file you care about.
+  saving works and the game keeps running, and loading resumes the game correctly.
+  Graphics and audio restoration are much newer than that and barely tested. Expect
+  crashes, and do not use it on a save file you care about.
 
 # ROM Compatibility
 

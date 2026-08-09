@@ -45,6 +45,9 @@ extern void unloadInGameMenu(void);
 extern void rtsSaveState(void);
 extern void rtsLoadState(void);
 extern void restorePreManualFull(void);
+extern void rtsAppendSection(void);
+extern void rtsReadSection(void);
+extern void rtsFinishSave(void);
 #endif
 
 extern u16 biosRead16(u32 addr);
@@ -193,6 +196,15 @@ void inGameMenu(void) {
 					break;
 				case RTS_CMD_LOAD:
 					rtsLoadState();
+					break;
+				case RTS_CMD_SEC_W:
+					rtsAppendSection();
+					break;
+				case RTS_CMD_SEC_R:
+					rtsReadSection();
+					break;
+				case RTS_CMD_FINISH:
+					rtsFinishSave();
 					break;
 				case RTS_CMD_DIAG: {
 					extern u32 rtsDiag;

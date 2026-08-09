@@ -120,6 +120,13 @@ static const rtsRamRange rtsRamRanges[] = {
 static rtsStateHeader stateHeader;
 static rtsSection sectionTable[RTS_MAX_SECTIONS];
 
+// A save is written in several commands: the bulk first, then whatever the
+// ARM9 hands over section by section, then the table
+static u32 rtsSectionCount = 0;
+static u32 rtsFileOffset = 0;
+
+#define RTS_STAGING(off) RTS_RAM_WINDOW(INGAME_MENU_EXT_LOCATION + (off))
+
 static tNDSHeader* rtsNdsHeader(void) {
 	return (tNDSHeader*)((valueBits & isSdk5) ? NDS_HEADER_SDK5 : NDS_HEADER);
 }
@@ -234,13 +241,72 @@ void rtsSaveState(void) {
 		fileOffset += range->size;
 	}
 
-	fileWrite((char*)sectionTable, &rtsFile, RTS_SECTION_TABLE_OFFSET, sizeof(sectionTable));
-
-	stateHeader.sectionCount = sectionCount;
-	stateHeader.valid = 1;
-	rtsSetStage(RTS_STAGE_DONE);
+	// The ARM9 now hands over the sections only it can reach (VRAM, palettes,
+	// OAM); RTS_CMD_FINISH writes the table and marks the state valid
+	rtsSectionCount = sectionCount;
+	rtsFileOffset = fileOffset;
 
 	sharedAddr[3] = RTS_OK;
+}
+
+// Each section type has its own slot in the staging area, so a later transfer
+// cannot overwrite one that is still needed - the DTCM image in particular has
+// to survive until the resume trampoline reads it, after the menu is gone.
+static u32 rtsStagingOffset(u32 fourcc) {
+	switch (fourcc) {
+		case RTS_SEC_VMEM: return RTS_STAGING_VMEM_OFFSET;
+		case RTS_SEC_DTCM: return RTS_STAGING_DTCM_OFFSET;
+		case RTS_SEC_ITCM: return RTS_STAGING_ITCM_OFFSET;
+		default:           return RTS_STAGING_BANK_OFFSET;
+	}
+}
+
+// Append whatever the ARM9 left in the staging area as a new section
+void rtsAppendSection(void) {
+	const u32 fourcc = sharedAddr[0];
+	const u32 size = sharedAddr[2];
+	const u32 stagingOff = rtsStagingOffset(fourcc);
+
+	if (rtsSectionCount >= RTS_MAX_SECTIONS || size == 0) {
+		return;
+	}
+
+	rtsSection* section = &sectionTable[rtsSectionCount++];
+	section->fourcc = fourcc;
+	section->targetAddr = 0; // ARM9-side, restored by the overlay
+	section->fileOffset = rtsFileOffset;
+	section->size = size;
+
+	rtsSetStage(RTS_STAGE_RAM);
+	fileWrite((char*)RTS_STAGING(stagingOff), &rtsFile, rtsFileOffset, size);
+	section->crc32 = rtsCrc32(0, RTS_STAGING(stagingOff), size);
+	rtsFileOffset += size;
+}
+
+// Put a section back into the staging area for the ARM9 to pick up
+void rtsReadSection(void) {
+	const u32 fourcc = sharedAddr[0];
+	const u32 stagingOff = rtsStagingOffset(fourcc);
+
+	sharedAddr[2] = 0;
+	for (u32 i = 0; i < stateHeader.sectionCount && i < RTS_MAX_SECTIONS; i++) {
+		const rtsSection* section = &sectionTable[i];
+		if (section->fourcc != fourcc || section->size == 0) {
+			continue;
+		}
+		fileRead((char*)RTS_STAGING(stagingOff), &rtsFile, section->fileOffset, section->size);
+		if (rtsCrc32(0, RTS_STAGING(stagingOff), section->size) == section->crc32) {
+			sharedAddr[2] = section->size;
+		}
+		return;
+	}
+}
+
+void rtsFinishSave(void) {
+	fileWrite((char*)sectionTable, &rtsFile, RTS_SECTION_TABLE_OFFSET, sizeof(sectionTable));
+	stateHeader.sectionCount = rtsSectionCount;
+	stateHeader.valid = 1;
+	rtsSetStage(RTS_STAGE_DONE);
 }
 
 void rtsLoadState(void) {

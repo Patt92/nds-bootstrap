@@ -506,6 +506,26 @@ static int rtsDetectMirror(void) {
 	return sawData ? 1 : -1;
 }
 
+#ifndef B4DS
+// The nine VRAM banks. Only what is mapped to the CPU can be copied, so each
+// bank is switched to LCDC (VRAMCNT = enable, MST 0) one at a time, which is
+// the same trick the screenshot code uses. Note 0x04000247 is WRAMCNT, not a
+// bank, so H and I sit at 0x248/0x249.
+static const struct { u32 cnt; u32 lcdc; u32 size; } rtsVramBanks[9] = {
+	{ 0x04000240, 0x06800000, 0x20000 }, // A
+	{ 0x04000241, 0x06820000, 0x20000 }, // B
+	{ 0x04000242, 0x06840000, 0x20000 }, // C
+	{ 0x04000243, 0x06860000, 0x20000 }, // D
+	{ 0x04000244, 0x06880000, 0x10000 }, // E
+	{ 0x04000245, 0x06890000, 0x04000 }, // F
+	{ 0x04000246, 0x06894000, 0x04000 }, // G
+	{ 0x04000248, 0x06898000, 0x08000 }, // H
+	{ 0x04000249, 0x068A0000, 0x04000 }, // I
+};
+
+#define RTS_STAGING_BANK ((u8*)INGAME_MENU_EXT_LOCATION + RTS_STAGING_BANK_OFFSET)
+#define RTS_STAGING_VMEM ((u8*)INGAME_MENU_EXT_LOCATION + RTS_STAGING_VMEM_OFFSET)
+
 // Runs a mailbox command and waits for the ARM7 to hand it back
 static void rtsMailbox(u32 cmd) {
 	sharedAddr[4] = cmd;
@@ -515,7 +535,85 @@ static void rtsMailbox(u32 cmd) {
 	}
 }
 
-static void rtsCommand(u32 cmd, bool quick) {
+static void rtsSectionCmd(u32 cmd, u32 fourcc, u32 size) {
+	sharedAddr[0] = fourcc;
+	sharedAddr[2] = size;
+	rtsMailbox(cmd);
+}
+
+// Hand every VRAM bank, the palettes and OAM over to the ARM7 one at a time
+static void rtsSaveVideo(void) {
+	for (int i = 0; i < 9; i++) {
+		vu8 *cnt = (vu8*)rtsVramBanks[i].cnt;
+		const u8 bak = *cnt;
+		*cnt = 0x80; // LCDC
+		tonccpy(RTS_STAGING_BANK, (void*)rtsVramBanks[i].lcdc, rtsVramBanks[i].size);
+		*cnt = bak;
+		rtsCacheFlush();
+		rtsSectionCmd(RTS_CMD_SEC_W, RTS_SEC_VRAM + i, rtsVramBanks[i].size);
+	}
+
+	tonccpy(RTS_STAGING_VMEM, (void*)0x05000000, RTS_VMEM_PAL_SIZE);
+	tonccpy(RTS_STAGING_VMEM + RTS_VMEM_PAL_SIZE, (void*)0x07000000, RTS_VMEM_OAM_SIZE);
+	for (int i = 0; i < 9; i++) {
+		RTS_STAGING_VMEM[RTS_VMEM_PAL_SIZE + RTS_VMEM_OAM_SIZE + i] = *(vu8*)rtsVramBanks[i].cnt;
+	}
+	rtsCacheFlush();
+	rtsSectionCmd(RTS_CMD_SEC_W, RTS_SEC_VMEM, RTS_VMEM_SIZE);
+}
+
+// Counterpart. vramCCr/vramHCr are the menu's own backups: it rewrites those
+// two banks' mappings on the way out, so they have to carry the restored
+// values rather than the ones from before the load.
+static void rtsLoadVideo(u8 *vramCCr, u8 *vramHCr) {
+	for (int i = 0; i < 9; i++) {
+		rtsSectionCmd(RTS_CMD_SEC_R, RTS_SEC_VRAM + i, 0);
+		if (sharedAddr[2] != rtsVramBanks[i].size) {
+			continue; // not in this state file
+		}
+		rtsCacheInvalidate();
+		vu8 *cnt = (vu8*)rtsVramBanks[i].cnt;
+		const u8 bak = *cnt;
+		*cnt = 0x80; // LCDC
+		tonccpy((void*)rtsVramBanks[i].lcdc, RTS_STAGING_BANK, rtsVramBanks[i].size);
+		*cnt = bak;
+	}
+
+	rtsSectionCmd(RTS_CMD_SEC_R, RTS_SEC_VMEM, 0);
+	if (sharedAddr[2] == RTS_VMEM_SIZE) {
+		rtsCacheInvalidate();
+		tonccpy((void*)0x05000000, RTS_STAGING_VMEM, RTS_VMEM_PAL_SIZE);
+		tonccpy((void*)0x07000000, RTS_STAGING_VMEM + RTS_VMEM_PAL_SIZE, RTS_VMEM_OAM_SIZE);
+		for (int i = 0; i < 9; i++) {
+			const u8 val = RTS_STAGING_VMEM[RTS_VMEM_PAL_SIZE + RTS_VMEM_OAM_SIZE + i];
+			if (rtsVramBanks[i].cnt == 0x04000242) {
+				*vramCCr = val; // applied by the menu's own cleanup
+			} else if (rtsVramBanks[i].cnt == 0x04000248) {
+				*vramHCr = val;
+			} else {
+				*(vu8*)rtsVramBanks[i].cnt = val;
+			}
+		}
+	}
+
+	// The menu writes its own backups of these back on the way out. They were
+	// taken before the load, so refresh them from what is now in VRAM - that
+	// turns the cleanup into a no-op instead of undoing the restore.
+	tonccpy(bgMapBak, BG_MAP_RAM_SUB(15), sizeof(bgMapBak));
+	tonccpy(palBak, BG_PALETTE_SUB, sizeof(palBak));
+	tonccpy(bgBak, BG_GFX_SUB, sizeof(igmText.font) * 4);
+
+	// Silence the SPU: its channel source, timer and length registers are
+	// write-only, so a resumed channel keeps grinding through whatever it was
+	// playing. Stopping them leaves silence until the game restarts its music,
+	// which beats the hanging noise.
+	for (int i = 0; i < 16; i++) {
+		*(vu32*)(0x04000400 + i * 16) &= ~(1u << 31);
+	}
+}
+#endif
+
+static void rtsCommand(u32 cmd, bool quick, u8 *vramCCr, u8 *vramHCr) {
 	sharedAddr[3] = 0xFFFFFFFF;
 
 	// The staging area is memory the running system owns, so it has to be
@@ -543,9 +641,19 @@ static void rtsCommand(u32 cmd, bool quick) {
 		rtsMailbox(cmd);
 
 		if (cmd == RTS_CMD_SAVE) {
+			if (sharedAddr[3] == RTS_OK) {
+				rtsSaveVideo();
+				rtsMailbox(RTS_CMD_FINISH);
+			}
 			rtsMailbox(RTS_CMD_EXT_RESTORE); // ROM cache back in place
 			DC_InvalidateRange((char*)INGAME_MENU_EXT_LOCATION, 0x40000);
 		} else {
+			if (sharedAddr[3] == RTS_OK) {
+				rtsLoadVideo(vramCCr, vramHCr);
+				// DTCM goes into staging last: the resume trampoline reads it
+				// from there after the menu is gone
+				rtsSectionCmd(RTS_CMD_SEC_R, RTS_SEC_DTCM, 0);
+			}
 			// RAM now holds the snapshot; no cached line may survive it.
 			// Only invalidate - cleaning would write pre-load data back.
 			// Never reached unless the command actually ran: invalidating
@@ -1104,7 +1212,7 @@ u32 inGameMenu(s32 *mainScreen, u32 consoleModel, s32 *exceptionRegisters) {
 	// without ever showing the menu
 	const u32 rtsAuto = exception ? 0 : sharedAddr[1];
 	if (rtsAuto == RTS_CMD_SAVE || rtsAuto == RTS_CMD_LOAD) {
-		rtsCommand(rtsAuto, true);
+		rtsCommand(rtsAuto, true, (u8*)&vramCCr, (u8*)&vramHCr);
 	} else
 	#else
 	const u32 rtsAuto = 0;
@@ -1196,10 +1304,10 @@ u32 inGameMenu(s32 *mainScreen, u32 consoleModel, s32 *exceptionRegisters) {
 					break;
 				#ifndef B4DS
 				case MENU_SAVE_STATE:
-					rtsCommand(RTS_CMD_SAVE, false);
+					rtsCommand(RTS_CMD_SAVE, false, (u8*)&vramCCr, (u8*)&vramHCr);
 					break;
 				case MENU_LOAD_STATE:
-					rtsCommand(RTS_CMD_LOAD, false);
+					rtsCommand(RTS_CMD_LOAD, false, (u8*)&vramCCr, (u8*)&vramHCr);
 					break;
 				#endif
 				case MENU_QUIT:
