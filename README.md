@@ -63,9 +63,9 @@ This is a proof of concept, not a finished feature:
 - **ARM7 memory is captured but not restored yet** — the region map still needs
   verification on hardware, so a resumed ARM7 keeps its current memory.
 - States are tied to the exact ROM and to a specific build of this fork.
-- **Untested on real hardware.** It compiles and the design is documented, but it
-  has not been validated on a console. Expect crashes, and do not use it on a save
-  file you care about.
+- **Barely tested on real hardware.** One session on a New 3DS with Resident Evil:
+  Deadly Silence found (and fixed) a crash in the save path; nothing beyond that has
+  been validated. Expect crashes, and do not use it on a save file you care about.
 
 # ROM Compatibility
 
