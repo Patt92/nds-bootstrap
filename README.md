@@ -54,6 +54,9 @@ This is a proof of concept, not a finished feature:
 
 - **DSi/3DS only, retail DS games only.** DSiWare, TWL-native games, B4DS/flashcard
   mode and SDK5 games are rejected. Wi-Fi and Download Play are out of scope.
+- **Loading is disabled in this build** (`RTS_ENABLE_LOAD`). Saving works; the
+  restore path still writes its staging area into nds-bootstrap's ROM cache, see
+  `docs/rts-architecture.md`.
 - **Only CPU state and main RAM are restored.** Video, VRAM, audio, timers and DMA
   are not reconstructed yet, so a loaded state will very likely have broken
   graphics or sound even when the game keeps running.

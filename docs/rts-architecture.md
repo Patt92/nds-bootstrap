@@ -367,6 +367,42 @@ save→resume→load→resume ×10 without reboot; later: load a state after ful
 10. **Shared WRAM**: only the slice below the ce7/cheat footprint (0x400 bytes) is
    live-restored; the full 32 KiB is captured in the file for later use.
 
+## 10b. Hardware test 1 (2026-08-09, New 3DS, RE:DS) — save path crash, diagnosed
+
+**Symptom:** Data Abort shortly after `Save State`, PC `0x020F3FB0` (game code),
+faulting address `0`, `r1 = 0x43484152` ("RAHC" — the CHAR section magic of a NITRO
+graphics resource), `r2 = 0x6000001F` (a VRAM destination). The game was parsing a
+graphics resource and followed a NULL pointer.
+
+**Cause:** the TCM staging area is `INGAME_MENU_EXT_LOCATION + 0x34000/0x38000`
+(`0x026EC000`-`0x026F8000`), which lies inside the ROM cache
+(`CACHE_ADRESS_START = ROM_LOCATION = 0x0C3EC000`, size `0xBE0000`). The save path
+wrote 48 KiB of TCM images straight into it. Upstream never touches that region
+without paging it out to `pagefile.sys` first (`prepareScreenshot()`) and reading it
+back (`saveScreenshot()`); the RTS code skipped both. The game then read TCM bytes
+where it expected ROM data — exactly the observed resource-parse crash.
+
+**Fix:** the save path now brackets staging with the same page-out/page-in the
+screenshot path uses (`SSPP` before staging, new `REST` command after the state was
+written, plus `DC_InvalidateRange` on the region), and flushes the ARM9 cache before
+the ARM7 reads the region.
+
+**Consequence for loading:** the load path needs the staged images to survive until
+the resume trampoline runs — which happens *after* the menu has exited, so there is
+no point at which the region could be paged back in. Loading a state would therefore
+leave the ROM cache holding TCM images. `RTS_ENABLE_LOAD` is **0** until staging has
+a home outside the ROM cache; `Load State` reports "Loading disabled in this build".
+
+**Also unresolved (blocks the load path):** the crash dump shows the game's ARM9
+stack at `sp = 0x027E3AF4`, i.e. inside the `WRK9` window this code both captures and
+live-restores. Two problems follow: (a) restoring the stack the ARM9 is currently
+executing on violates the same rule as §6 and must be deferred to the trampoline, and
+(b) it is not established whether the game's `0x027Exxxx` accesses and the ARM7's
+`0x0C7Exxxx` window address the same physical memory — the mirroring behaviour of the
+NTR 4 MiB view on DSi/3DS hardware needs to be measured, not reasoned about, before
+any further restore work. The IGM RAM viewer can settle it directly by comparing
+`0x023E0000` against `0x027E0000` in a running game.
+
 ## 11. Status & how to test
 
 Implemented on this branch: M0-M4 (M4 = experimental resume; video/audio/timers/DMA are NOT

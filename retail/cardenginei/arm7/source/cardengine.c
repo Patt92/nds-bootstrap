@@ -1090,6 +1090,14 @@ void readManual(int line) {
 	}
 }
 
+#ifndef TWLSDK
+// Experimental RTS: counterpart to prepareScreenshot()'s page-out, restoring
+// the whole ext region instead of just the manual's text buffer (rts.c)
+void restorePreManualFull(void) {
+	fileRead((char*)INGAME_MENU_EXT_LOCATION, &pageFile, 0x540000, 0x40000);
+}
+#endif
+
 void restorePreManual(void) {
 #ifdef TWLSDK
 	//bool doBak = ((valueBits & gameOnFlashcard) && (valueBits & b_dsiSD));

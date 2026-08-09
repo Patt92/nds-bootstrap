@@ -473,19 +473,38 @@ static const unsigned char* rtsResultText(u32 res) {
 		case RTS_ERR_VERSION:    return (const unsigned char*)"Incompatible state version";
 		case RTS_ERR_CRC:        return (const unsigned char*)"State file is corrupted";
 		case RTS_ERR_UNSUPPORTED: return (const unsigned char*)"Not supported for this game";
+		case RTS_ERR_LOAD_DISABLED: return (const unsigned char*)"Loading disabled in this build";
 		default:                 return (const unsigned char*)"Unknown error";
 	}
 }
 
 u32 getDtcmBase(void);
 
+// Runs a mailbox command and waits for the ARM7 to hand it back
+static void rtsMailbox(u32 cmd) {
+	sharedAddr[4] = cmd;
+	while (sharedAddr[4] == cmd) {
+		while (REG_VCOUNT != 191) mySwiDelay(100);
+		while (REG_VCOUNT == 191) mySwiDelay(100);
+	}
+}
+
 static void rtsCommand(u32 cmd, bool quick) {
 	sharedAddr[3] = 0xFFFFFFFF;
 
-	if (cmd == RTS_CMD_SAVE) {
-		// Stage both TCMs into the ext region: they are invisible to the
-		// ARM7 but hold the game's IRQ stacks (DTCM) and fast code (ITCM),
-		// without which a captured CPU context cannot unwind (M4)
+	if (cmd == RTS_CMD_LOAD && !RTS_ENABLE_LOAD) {
+		sharedAddr[3] = RTS_ERR_LOAD_DISABLED;
+	} else if (cmd == RTS_CMD_SAVE) {
+		// The staging area sits inside the ROM cache, so it has to be paged
+		// out to pagefile.sys first and read back afterwards - exactly what
+		// the screenshot path does with the same region. Without this the
+		// game later reads TCM images where it expects ROM data.
+		rtsCacheFlush();        // the ARM7 is about to read this region
+		rtsMailbox(0x50505353); // SSPP: page the ext region out
+
+		// Stage both TCMs: they are invisible to the ARM7 but hold the
+		// game's IRQ stacks (DTCM) and fast code (ITCM), without which a
+		// captured CPU context cannot unwind (M4)
 		(*changeMpu)();
 		tonccpy((u8*)INGAME_MENU_EXT_LOCATION + RTS_STAGING_DTCM_OFFSET, (void*)getDtcmBase(), RTS_DTCM_SIZE);
 		tonccpy((u8*)INGAME_MENU_EXT_LOCATION + RTS_STAGING_ITCM_OFFSET, (void*)0x01000000, RTS_ITCM_SIZE); // ITCM mirror
@@ -494,18 +513,20 @@ static void rtsCommand(u32 cmd, bool quick) {
 
 	// Every dirty ARM9 line must reach RAM before the ARM7 serializes it;
 	// on load it also drops lines that would mask the restored bytes
-	rtsCacheFlush();
+	if (sharedAddr[3] == 0xFFFFFFFF) {
+		rtsCacheFlush();
+		rtsMailbox(cmd);
 
-	sharedAddr[4] = cmd;
-	while (sharedAddr[4] == cmd) {
-		while (REG_VCOUNT != 191) mySwiDelay(100);
-		while (REG_VCOUNT == 191) mySwiDelay(100);
-	}
-
-	if (cmd == RTS_CMD_LOAD) {
-		// RAM now holds the snapshot; no cached line may survive it.
-		// Only invalidate - cleaning would write pre-load data back.
-		rtsCacheInvalidate();
+		if (cmd == RTS_CMD_SAVE) {
+			rtsMailbox(RTS_CMD_EXT_RESTORE); // ROM cache back in place
+			DC_InvalidateRange((char*)INGAME_MENU_EXT_LOCATION, 0x40000);
+		} else {
+			// RAM now holds the snapshot; no cached line may survive it.
+			// Only invalidate - cleaning would write pre-load data back.
+			// Never reached unless the command actually ran: invalidating
+			// after a refused command would drop still-dirty game lines.
+			rtsCacheInvalidate();
+		}
 	}
 
 	const u32 res = sharedAddr[3];

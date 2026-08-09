@@ -44,6 +44,7 @@ extern void unloadInGameMenu(void);
 #ifndef TWLSDK
 extern void rtsSaveState(void);
 extern void rtsLoadState(void);
+extern void restorePreManualFull(void);
 #endif
 
 extern u16 biosRead16(u32 addr);
@@ -192,6 +193,10 @@ void inGameMenu(void) {
 					break;
 				case RTS_CMD_LOAD:
 					rtsLoadState();
+					break;
+				case RTS_CMD_EXT_RESTORE:
+					// Undo the page-out the save path did before staging
+					restorePreManualFull();
 					break;
 				#endif
 				/* case 0x50455453: // STEP
