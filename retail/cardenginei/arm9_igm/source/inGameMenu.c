@@ -476,8 +476,20 @@ static const unsigned char* rtsResultText(u32 res) {
 	}
 }
 
+u32 getDtcmBase(void);
+
 static void rtsCommand(u32 cmd) {
 	sharedAddr[3] = 0xFFFFFFFF;
+
+	if (cmd == RTS_CMD_SAVE) {
+		// Stage both TCMs into the ext region: they are invisible to the
+		// ARM7 but hold the game's IRQ stacks (DTCM) and fast code (ITCM),
+		// without which a captured CPU context cannot unwind (M4)
+		(*changeMpu)();
+		tonccpy((u8*)INGAME_MENU_EXT_LOCATION + RTS_STAGING_DTCM_OFFSET, (void*)getDtcmBase(), RTS_DTCM_SIZE);
+		tonccpy((u8*)INGAME_MENU_EXT_LOCATION + RTS_STAGING_ITCM_OFFSET, (void*)0x01000000, RTS_ITCM_SIZE); // ITCM mirror
+		(*revertMpu)();
+	}
 
 	// Every dirty ARM9 line must reach RAM before the ARM7 serializes it;
 	// on load it also drops lines that would mask the restored bytes

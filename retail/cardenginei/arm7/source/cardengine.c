@@ -1923,7 +1923,16 @@ void myIrqHandlerVBlank(void) {
 		igmText = (struct IgmText *)INGAME_MENU_LOCATION;
 		i2cWriteRegister(0x4A, 0x12, 0x00);
 #endif
+#ifdef TWLSDK
 		inGameMenu();
+#else
+		{
+			// Experimental RTS: capture the interrupted ARM7 context
+			// setjmp-style before the menu path runs (rts.c)
+			extern void rtsMenuArm7(void);
+			rtsMenuArm7();
+		}
+#endif
 #ifdef TWLSDK
 		i2cWriteRegister(0x4A, 0x12, 0x01);
 #endif

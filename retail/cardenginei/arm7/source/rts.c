@@ -24,6 +24,30 @@ extern u32 rtsFileCluster;
 
 extern aFile rtsFile;
 
+extern void inGameMenu(void);
+extern int rtsCaptureContext(u32* ctx);
+
+#define REG_IME7 (*(vu32*)0x04000208)
+#define REG_IE7  (*(vu32*)0x04000210)
+
+static rtsCpuContext rtsCtx7;
+
+// ARM9 context address in main RAM, published via sharedAddr[2] by the ce9
+// menu wrapper before the IGM overlay reports ready; latched by the ARM7
+// menu loop so later mailbox traffic (e.g. the RAM viewer) can't clobber it
+u32 rtsCtx9Addr = 0;
+
+// Entry point from the hotkey site in cardengine.c. setjmp-style: a zero
+// return is the capture, non-zero means the M4 trampoline resumed a loaded
+// state and the VBlank IRQ path must unwind untouched.
+void rtsMenuArm7(void) {
+	if (rtsCaptureContext((u32*)&rtsCtx7) == 0) {
+		rtsCtx7.ime = REG_IME7;
+		rtsCtx7.ie = REG_IE7;
+		inGameMenu();
+	}
+}
+
 // The ARM7 reads/writes the game's memory through the uncached 0x0C000000
 // window (same as dumpRam), sidestepping any question of what the 0x02000000
 // arena looks like from the ARM7 bus.
@@ -101,15 +125,44 @@ void rtsSaveState(void) {
 	stateHeader.valid = 0;
 	tonccpy(stateHeader.gameCode, header->gameCode, 4);
 	stateHeader.headerCRC = header->headerCRC16;
-	stateHeader.sectionCount = RTS_RAM_RANGE_COUNT;
 	rtsSetStage(RTS_STAGE_HEADER);
 
-	// Section payloads: RAM ranges, written straight from the RAM window
 	toncset(sectionTable, 0, sizeof(sectionTable));
 	u32 fileOffset = RTS_PAYLOAD_OFFSET;
+	u32 sectionCount = 0;
+
+	// CPU contexts and the ARM9-staged TCM images. The IGM staged DTCM/ITCM
+	// into the ext region and flushed its caches before issuing this command.
+	const struct {
+		u32 fourcc;
+		const u8* src;   // ARM7-visible source
+		u32 targetAddr;  // ARM9-side home of the data
+		u32 size;
+	} fixedSections[] = {
+		{ RTS_SEC_CPU7, (const u8*)&rtsCtx7, (u32)&rtsCtx7, sizeof(rtsCtx7) },
+		{ RTS_SEC_CPU9, RTS_RAM_WINDOW(rtsCtx9Addr), rtsCtx9Addr, sizeof(rtsCpuContext) },
+		{ RTS_SEC_DTCM, RTS_RAM_WINDOW(INGAME_MENU_EXT_LOCATION + RTS_STAGING_DTCM_OFFSET), 0, RTS_DTCM_SIZE },
+		{ RTS_SEC_ITCM, RTS_RAM_WINDOW(INGAME_MENU_EXT_LOCATION + RTS_STAGING_ITCM_OFFSET), 0, RTS_ITCM_SIZE },
+	};
+	for (u32 i = 0; i < sizeof(fixedSections) / sizeof(fixedSections[0]); i++) {
+		rtsSection* section = &sectionTable[sectionCount++];
+		section->fourcc = fixedSections[i].fourcc;
+		section->targetAddr = fixedSections[i].targetAddr;
+		section->fileOffset = fileOffset;
+		section->size = fixedSections[i].size;
+		if (fixedSections[i].fourcc == RTS_SEC_CPU9 && rtsCtx9Addr == 0) {
+			section->size = 0; // ce9 never published a context (unexpected)
+		} else {
+			fileWrite((char*)fixedSections[i].src, &rtsFile, fileOffset, section->size);
+			section->crc32 = rtsCrc32(0, fixedSections[i].src, section->size);
+		}
+		fileOffset += section->size;
+	}
+
+	// RAM ranges, written straight from the RAM window
 	for (u32 i = 0; i < RTS_RAM_RANGE_COUNT; i++) {
 		const rtsRamRange* range = &rtsRamRanges[i];
-		rtsSection* section = &sectionTable[i];
+		rtsSection* section = &sectionTable[sectionCount++];
 
 		section->fourcc = range->fourcc;
 		section->targetAddr = range->targetAddr;
@@ -127,6 +180,7 @@ void rtsSaveState(void) {
 
 	fileWrite((char*)sectionTable, &rtsFile, RTS_SECTION_TABLE_OFFSET, sizeof(sectionTable));
 
+	stateHeader.sectionCount = sectionCount;
 	stateHeader.valid = 1;
 	rtsSetStage(RTS_STAGE_DONE);
 

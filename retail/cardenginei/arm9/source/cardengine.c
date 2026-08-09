@@ -34,6 +34,7 @@
 #include "hex.h"
 #include "igm_text.h"
 #include "nds_header.h"
+#include "rts_state.h"
 #include "cardengine.h"
 #include "locations.h"
 #include "cardengine_header_arm9.h"
@@ -1614,6 +1615,26 @@ void myIrqHandlerVcount(void) {
 	#endif */
 }
 
+#if !defined(TWLSDK) && !defined(GSDD)
+// Experimental RTS: the game context is captured setjmp-style at the exact
+// point where the IPC IRQ enters the menu path, before anything else runs.
+// The M4 resume trampoline re-enters at this call boundary with a non-zero
+// return so the IRQ path unwinds through the restored save-time stack.
+extern int rtsCaptureContext(u32* ctx);
+static rtsCpuContext rtsCtx9;
+
+static void rtsMenuArm9(void) {
+	if (rtsCaptureContext((u32*)&rtsCtx9) == 0) {
+		rtsCtx9.ime = REG_IME;
+		rtsCtx9.ie = REG_IE;
+		sharedAddr[2] = (u32)&rtsCtx9; // ARM7 latches this while loading the IGM
+		inGameMenu((s32*)0);
+	}
+	// non-zero return: resumed from a loaded state; fall straight back
+	// through the (restored) IRQ path into the game
+}
+#endif
+
 //---------------------------------------------------------------------------------
 void myIrqHandlerIPC(void) {
 //---------------------------------------------------------------------------------
@@ -1703,7 +1724,11 @@ void myIrqHandlerIPC(void) {
 				REG_POWERCNT |= POWER_SWAP_LCDS;
 		}	break;
 		case 0x9:
+			#if !defined(TWLSDK) && !defined(GSDD)
+			rtsMenuArm9();
+			#else
 			inGameMenu((s32*)0);
+			#endif
 			break;
 	}
 

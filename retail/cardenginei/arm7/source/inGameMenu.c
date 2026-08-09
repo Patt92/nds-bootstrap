@@ -82,6 +82,13 @@ void inGameMenu(void) {
 		}
 	}
 
+	#ifndef TWLSDK
+	// Latch the ARM9 RTS context address published by the ce9 menu wrapper
+	// before mailbox args get reused by menu commands (rts.c)
+	extern u32 rtsCtx9Addr;
+	rtsCtx9Addr = sharedAddr[2];
+	#endif
+
 	if (sharedAddr[4] == 0x554E454D) {
 		bool exitMenu = false;
 		while (!exitMenu) {

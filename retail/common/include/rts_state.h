@@ -25,8 +25,32 @@
 // Section IDs
 #define RTS_SEC_MRAM 0x4D41524D // 'MRAM' main RAM 0x02000000 (game arena)
 #define RTS_SEC_WRK9 0x394B5257 // 'WRK9' 0x027E0000 work/DTCM-mapped window
-#define RTS_SEC_CPU9 0x39555043 // 'CPU9' ARM9 context (M3+)
-#define RTS_SEC_CPU7 0x37555043 // 'CPU7' ARM7 context (M3+)
+#define RTS_SEC_CPU9 0x39555043 // 'CPU9' ARM9 context
+#define RTS_SEC_CPU7 0x37555043 // 'CPU7' ARM7 context
+#define RTS_SEC_DTCM 0x4D435444 // 'DTCM' ARM9 data TCM (16 KiB, ARM9-staged)
+#define RTS_SEC_ITCM 0x4D435449 // 'ITCM' ARM9 instruction TCM (32 KiB, ARM9-staged)
+
+// CPU context captured by rtsCaptureContext at the point where the IRQ
+// handler enters the menu path (setjmp-style; see docs/rts-architecture.md
+// §3). Caller-saved registers are dead at that call boundary. The first 17
+// words are written by assembly and must match its store order; ime/ie are
+// filled in by C afterwards (per-CPU MMIO, unreachable from the other CPU).
+typedef struct rtsCpuContext {
+	u32 r[8];    // r4-r11
+	u32 sp, lr;  // capture mode (IRQ path)
+	u32 cpsr;    // capture-time CPSR
+	u32 spsr;    // interrupted game CPSR
+	u32 spSys, lrSys;
+	u32 spSvc, lrSvc, spsrSvc;
+	u32 ime, ie;
+} rtsCpuContext;
+
+// ARM9-staged data inside INGAME_MENU_EXT_LOCATION (0x40000 bytes total;
+// 0x0-0x30200 is the screenshot area, unused while a RTS command runs)
+#define RTS_STAGING_DTCM_OFFSET 0x34000
+#define RTS_STAGING_ITCM_OFFSET 0x38000
+#define RTS_DTCM_SIZE 0x4000
+#define RTS_ITCM_SIZE 0x8000
 
 // Save/load stage markers (RTS_DEBUG, stored in header stageMarker)
 #define RTS_STAGE_HEADER  0x30445248 // 'HRD0'
