@@ -1,10 +1,9 @@
 // Experimental RTS / save states, ARM7 side (see docs/rts-architecture.md).
-// M2: main-RAM snapshot with CRC verification. The ARM9 IGM flushes its
-// caches before issuing a command, so physical RAM is coherent here.
-//
-// Loading a state only restores RAM so far (no CPU/hardware context yet) -
-// the session is NOT expected to survive a load until M4. The point of the
-// M2 load path is proving byte-exact restore via CRC.
+// Serializes RAM/WRAM/TCM images and both CPU contexts; on load it restores
+// them (TCMs and ARM7-WRAM via staging) and arms the resume trampolines
+// that longjmp both CPUs back into the save-time context. Hardware state
+// beyond IME/IE is not reconstructed yet (M5+), so graphics/audio glitches
+// after a resume are expected for now.
 #ifndef TWLSDK
 
 #include <nds/ndstypes.h>
@@ -37,14 +36,28 @@ static rtsCpuContext rtsCtx7;
 // menu loop so later mailbox traffic (e.g. the RAM viewer) can't clobber it
 u32 rtsCtx9Addr = 0;
 
+extern void rtsResumeArm7(u32* ctx, const u32* wramSrc, u32* wramDst, u32 wramLen);
+
+// Armed by a fully validated load; consumed after the menu has exited and
+// the ARM7 is back at the hotkey site with the IGM unloaded
+static bool rtsResumePending = false;
+
 // Entry point from the hotkey site in cardengine.c. setjmp-style: a zero
-// return is the capture, non-zero means the M4 trampoline resumed a loaded
-// state and the VBlank IRQ path must unwind untouched.
+// return is the capture, non-zero means the resume trampoline re-entered
+// and the VBlank IRQ path must unwind untouched into the restored game.
 void rtsMenuArm7(void) {
 	if (rtsCaptureContext((u32*)&rtsCtx7) == 0) {
 		rtsCtx7.ime = REG_IME7;
 		rtsCtx7.ie = REG_IE7;
 		inGameMenu();
+
+		if (rtsResumePending) {
+			rtsResumePending = false;
+			rtsResumeArm7((u32*)&rtsCtx7,
+				(const u32*)RTS_RAM_WINDOW(INGAME_MENU_EXT_LOCATION + RTS_STAGING_WRM7_OFFSET),
+				(u32*)0x03800000, RTS_WRM7_SIZE);
+			// never reached
+		}
 	}
 }
 
@@ -143,6 +156,8 @@ void rtsSaveState(void) {
 		{ RTS_SEC_CPU9, RTS_RAM_WINDOW(rtsCtx9Addr), rtsCtx9Addr, sizeof(rtsCpuContext) },
 		{ RTS_SEC_DTCM, RTS_RAM_WINDOW(INGAME_MENU_EXT_LOCATION + RTS_STAGING_DTCM_OFFSET), 0, RTS_DTCM_SIZE },
 		{ RTS_SEC_ITCM, RTS_RAM_WINDOW(INGAME_MENU_EXT_LOCATION + RTS_STAGING_ITCM_OFFSET), 0, RTS_ITCM_SIZE },
+		{ RTS_SEC_WRM7, (const u8*)0x03800000, 0x03800000, RTS_WRM7_SIZE },
+		{ RTS_SEC_WRMS, (const u8*)0x03000000, 0x03000000, RTS_WRMS_SIZE },
 	};
 	for (u32 i = 0; i < sizeof(fixedSections) / sizeof(fixedSections[0]); i++) {
 		rtsSection* section = &sectionTable[sectionCount++];
@@ -219,28 +234,77 @@ void rtsLoadState(void) {
 
 	fileRead((char*)sectionTable, &rtsFile, RTS_SECTION_TABLE_OFFSET, sizeof(sectionTable));
 
-	// Restore RAM sections, then verify the restored memory byte-exactly.
-	// The ARM9 sits in its polling loop (stack in DTCM, code in the IGM
-	// region) and invalidates its caches once this command returns.
+	// The CPU context homes must match this build/session, otherwise the
+	// captured stacks cannot unwind (different cardengine layout)
 	for (u32 i = 0; i < stateHeader.sectionCount; i++) {
 		const rtsSection* section = &sectionTable[i];
-		if (section->fourcc != RTS_SEC_MRAM && section->fourcc != RTS_SEC_WRK9) {
-			continue; // future section types are not restorable by M2 code
+		if ((section->fourcc == RTS_SEC_CPU7 && section->targetAddr != (u32)&rtsCtx7)
+		 || (section->fourcc == RTS_SEC_CPU9 && (rtsCtx9Addr == 0 || section->targetAddr != rtsCtx9Addr))) {
+			sharedAddr[3] = RTS_ERR_VERSION;
+			return;
+		}
+	}
+
+	// Restore every section, then verify the restored bytes. From the first
+	// restored section on, the session is committed: on any error the game
+	// memory is already a mix of two worlds and only a reset helps. The
+	// ARM9 sits in its polling loop (stack in DTCM, code in the IGM region)
+	// and invalidates its caches once this command returns; the TCM and
+	// ARM7-WRAM images stay staged until the resume trampolines copy them.
+	for (u32 i = 0; i < stateHeader.sectionCount; i++) {
+		const rtsSection* section = &sectionTable[i];
+		if (section->size == 0) {
+			continue;
+		}
+
+		u8* dst;
+		switch (section->fourcc) {
+			case RTS_SEC_MRAM:
+			case RTS_SEC_WRK9:
+			case RTS_SEC_CPU9:
+				dst = RTS_RAM_WINDOW(section->targetAddr);
+				break;
+			case RTS_SEC_CPU7:
+				dst = (u8*)&rtsCtx7;
+				break;
+			case RTS_SEC_DTCM:
+				dst = RTS_RAM_WINDOW(INGAME_MENU_EXT_LOCATION + RTS_STAGING_DTCM_OFFSET);
+				break;
+			case RTS_SEC_ITCM:
+				dst = RTS_RAM_WINDOW(INGAME_MENU_EXT_LOCATION + RTS_STAGING_ITCM_OFFSET);
+				break;
+			case RTS_SEC_WRM7:
+				dst = RTS_RAM_WINDOW(INGAME_MENU_EXT_LOCATION + RTS_STAGING_WRM7_OFFSET);
+				break;
+			case RTS_SEC_WRMS:
+				// staged behind the WRM7 image, partially copied below
+				dst = RTS_RAM_WINDOW(INGAME_MENU_EXT_LOCATION + RTS_STAGING_WRM7_OFFSET + RTS_WRM7_SIZE);
+				break;
+			default:
+				continue; // unknown section from a newer minor format
 		}
 
 		rtsSetStage(RTS_STAGE_RESTORE);
-		fileRead((char*)RTS_RAM_WINDOW(section->targetAddr), &rtsFile, section->fileOffset, section->size);
+		fileRead((char*)dst, &rtsFile, section->fileOffset, section->size);
 
 		rtsSetStage(RTS_STAGE_VERIFY);
-		if (rtsCrc32(0, RTS_RAM_WINDOW(section->targetAddr), section->size) != section->crc32) {
+		if (rtsCrc32(0, dst, section->size) != section->crc32) {
 			rtsSetStage(RTS_STAGE_DONE);
 			sharedAddr[3] = RTS_ERR_CRC;
 			return;
 		}
+
+		if (section->fourcc == RTS_SEC_WRMS) {
+			// Only the game-owned slice below the ce7/cheat footprint is
+			// live-restored in V0; the rest is bootstrap-owned right now
+			tonccpy((u8*)0x03000000, dst, RTS_WRMS_RESTORE_SIZE);
+		}
 	}
 	rtsSetStage(RTS_STAGE_DONE);
 
-	// M4+: CPU context + hardware restore and resume trampoline run here
+	// Arm the resume: the IGM exits the menu on RTS_OK, the ce9 wrapper
+	// jumps through rtsResumeArm9, and rtsMenuArm7 through rtsResumeArm7
+	rtsResumePending = true;
 
 	sharedAddr[3] = RTS_OK;
 }

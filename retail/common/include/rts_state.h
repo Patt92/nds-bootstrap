@@ -29,6 +29,12 @@
 #define RTS_SEC_CPU7 0x37555043 // 'CPU7' ARM7 context
 #define RTS_SEC_DTCM 0x4D435444 // 'DTCM' ARM9 data TCM (16 KiB, ARM9-staged)
 #define RTS_SEC_ITCM 0x4D435449 // 'ITCM' ARM9 instruction TCM (32 KiB, ARM9-staged)
+#define RTS_SEC_WRM7 0x374D5257 // 'WRM7' ARM7-exclusive WRAM (64 KiB @ 0x03800000)
+#define RTS_SEC_WRMS 0x534D5257 // 'WRMS' shared WRAM as seen by ARM7 (32 KiB @ 0x03000000)
+
+// Written by the IGM into sharedAddr[3] after a successful load so the ce9
+// menu wrapper runs the resume trampoline once the menu has fully exited
+#define RTS_RESUME_MAGIC 0x454D5352 // 'RSME'
 
 // CPU context captured by rtsCaptureContext at the point where the IRQ
 // handler enters the menu path (setjmp-style; see docs/rts-architecture.md
@@ -45,12 +51,19 @@ typedef struct rtsCpuContext {
 	u32 ime, ie;
 } rtsCpuContext;
 
-// ARM9-staged data inside INGAME_MENU_EXT_LOCATION (0x40000 bytes total;
-// 0x0-0x30200 is the screenshot area, unused while a RTS command runs)
+// Staging areas inside INGAME_MENU_EXT_LOCATION (0x40000 bytes total;
+// 0x0-0x30200 is the screenshot area, unused while a RTS command runs.
+// The WRM7 image reuses the vramBak slot at 0x18200 during a load only.)
+#define RTS_STAGING_WRM7_OFFSET 0x18200
 #define RTS_STAGING_DTCM_OFFSET 0x34000
 #define RTS_STAGING_ITCM_OFFSET 0x38000
 #define RTS_DTCM_SIZE 0x4000
 #define RTS_ITCM_SIZE 0x8000
+#define RTS_WRM7_SIZE 0x10000
+#define RTS_WRMS_SIZE 0x8000
+// Only the slice of shared WRAM below the cardengine/cheat-engine footprint
+// is restored in V0 (the rest is bootstrap-owned while a game runs)
+#define RTS_WRMS_RESTORE_SIZE 0x400
 
 // Save/load stage markers (RTS_DEBUG, stored in header stageMarker)
 #define RTS_STAGE_HEADER  0x30445248 // 'HRD0'

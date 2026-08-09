@@ -510,6 +510,16 @@ static void rtsCommand(u32 cmd) {
 	const u32 res = sharedAddr[3];
 	sharedAddr[3] = 0;
 
+	if (cmd == RTS_CMD_LOAD && res == RTS_OK) {
+		// RAM already holds the loaded state; exit the menu right away and
+		// tell the ce9 wrapper (via the mailbox result word, which the
+		// ARM7 exit path leaves alone) to run the resume trampoline
+		sharedAddr[3] = RTS_RESUME_MAGIC;
+		sharedAddr[4] = 0x54495845; // EXIT
+		while (sharedAddr[4] != 0) swiDelay(100);
+		return;
+	}
+
 	clearScreen(false);
 	printCenter(15, 10, rtsResultText(res), res == RTS_OK ? FONT_LIME : FONT_RED, false);
 	printCenter(15, 12, (const unsigned char*)"A: OK", FONT_LIGHT_GRAY, false);

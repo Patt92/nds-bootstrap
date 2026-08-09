@@ -1621,6 +1621,7 @@ void myIrqHandlerVcount(void) {
 // The M4 resume trampoline re-enters at this call boundary with a non-zero
 // return so the IRQ path unwinds through the restored save-time stack.
 extern int rtsCaptureContext(u32* ctx);
+extern void rtsResumeArm9(u32* ctx);
 static rtsCpuContext rtsCtx9;
 
 static void rtsMenuArm9(void) {
@@ -1629,6 +1630,14 @@ static void rtsMenuArm9(void) {
 		rtsCtx9.ie = REG_IE;
 		sharedAddr[2] = (u32)&rtsCtx9; // ARM7 latches this while loading the IGM
 		inGameMenu((s32*)0);
+
+		if (sharedAddr[3] == RTS_RESUME_MAGIC) {
+			// A state was loaded: RAM is already the save-time world and
+			// the menu is fully unloaded. Copy the staged TCM images in
+			// and longjmp into the save-time context - never returns.
+			sharedAddr[3] = 0;
+			rtsResumeArm9((u32*)&rtsCtx9);
+		}
 	}
 	// non-zero return: resumed from a loaded state; fall straight back
 	// through the (restored) IRQ path into the game
