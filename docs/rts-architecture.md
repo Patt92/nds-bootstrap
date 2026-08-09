@@ -546,6 +546,52 @@ restored: it holds code, which is identical across a save/load pair.
 Verified in the linked object: the literal pool holds `0x026EC000`, `'DTCD'`, `'DTCA'`,
 and the copy loop moves `0x4000` bytes in 16-byte blocks.
 
+## 10f. Hardware test 5 — DTCM restore changed nothing
+
+Reported after adding the DTCM restore: **behaviour is identical.** Same hanging
+audio, same graphical artefacts, same self-repair on a room change. Nothing improved
+and nothing got worse. A further observation: loading after walking to a different
+camera frame *in the same room* puts the room's objects at the player's position, and
+the camera switch makes the character jump about before settling.
+
+Identical behaviour is itself evidence: if the DTCM copy were running and DTCM
+mattered, something should have shifted. Two readings, and they need to be told apart
+before any more design work:
+
+1. **The trampoline's DTCM path is not executing** (handshake lost, section absent,
+   `getDtcmBase()` wrong) — in which case the idea is untested rather than refuted.
+2. **DTCM simply was not the blocker.** The dumps show the game's ARM9 stack near the
+   top of DTCM (`sp = 0x027E3F80`, 128 bytes below the end), i.e. a shallow stack. If
+   the SDK's DTCM contents barely differ between two moments in the same session,
+   restoring them is a no-op in practice, and the state that actually diverges lives
+   elsewhere.
+
+The build therefore reports, on the **save** result screen, what the previous load
+actually managed:
+
+```
+RAM MIRROR:   NO
+LAST RESUME:  OK | NO HANDSHAKE | NONE YET
+DTCM BYTES:   00004000
+```
+
+`OK` means the ARM9 trampoline reported its DTCM copy and the ARM7 paged the staging
+region back in. `NO HANDSHAKE` means the ARM7 waited ~33M iterations without the ARM9
+ever signalling — the trampoline did not reach that point. `DTCM BYTES` is the size of
+the DTCM section the load actually put into staging; `00000000` means the state file
+has no usable DTCM section.
+
+**If it reads `OK` / `00004000`, hypothesis 2 holds** and attention moves to what is
+still not restored at all. The strongest remaining candidate is **ARM7 state**: the
+sound driver and the game's ARM7 side keep running with present-time state while the
+ARM9 jumps back, so the two processors are desynchronised — which is exactly what
+hanging audio looks like. `WRA7` (`0x037F0000`-`0x03800000`, the game's ARM7 region,
+above ce7's 61 KiB at `0x037E0400`) and `WRM7` (ARM7 WRAM at `0x03800000`) are
+captured but still not restored; restoring them has the same self-overwrite problem as
+DTCM and needs the same trampoline treatment, with staging that survives the pagefile
+restore. After that: VRAM/OAM/palettes (M6), which is what the graphical artefacts and
+their self-repair on a room change point at.
+
 ## 11. Status & how to test
 
 Implemented on this branch: M0-M4 (M4 = experimental resume; video/audio/timers/DMA are NOT

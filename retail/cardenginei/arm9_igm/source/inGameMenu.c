@@ -570,12 +570,22 @@ static void rtsCommand(u32 cmd, bool quick) {
 	clearScreen(false);
 	printCenter(15, 10, rtsResultText(res), res == RTS_OK ? FONT_LIME : FONT_RED, false);
 
-	// Diagnostic for the open memory-map question (see docs/rts-architecture.md)
+	// Diagnostics (see docs/rts-architecture.md)
 	const int mirror = rtsDetectMirror();
-	print(1, 14, (const unsigned char*)"RAM MIRROR:", FONT_LIGHT_GRAY, false);
-	print(13, 14, mirror == 1 ? (const unsigned char*)"YES"
+	print(1, 13, (const unsigned char*)"RAM MIRROR:", FONT_LIGHT_GRAY, false);
+	print(14, 13, mirror == 1 ? (const unsigned char*)"YES"
 	            : mirror == 0 ? (const unsigned char*)"NO"
 	                          : (const unsigned char*)"?", FONT_LIGHT_BLUE, false);
+
+	// Did the previous load's resume actually do what it claims?
+	rtsMailbox(RTS_CMD_DIAG);
+	const u32 diag = sharedAddr[0];
+	print(1, 14, (const unsigned char*)"LAST RESUME:", FONT_LIGHT_GRAY, false);
+	print(14, 14, (diag & 0xFF) == RTS_DIAG_HS_OK      ? (const unsigned char*)"OK"
+	            : (diag & 0xFF) == RTS_DIAG_HS_TIMEOUT ? (const unsigned char*)"NO HANDSHAKE"
+	                                                   : (const unsigned char*)"NONE YET", FONT_LIGHT_BLUE, false);
+	print(1, 15, (const unsigned char*)"DTCM BYTES:", FONT_LIGHT_GRAY, false);
+	printHex(14, 15, diag & ~0xFFu, 4, FONT_LIGHT_BLUE, false);
 
 	if (quick) {
 		// Hotkey path: show the result briefly, then leave on our own

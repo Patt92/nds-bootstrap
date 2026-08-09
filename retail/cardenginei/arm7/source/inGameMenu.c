@@ -194,6 +194,11 @@ void inGameMenu(void) {
 				case RTS_CMD_LOAD:
 					rtsLoadState();
 					break;
+				case RTS_CMD_DIAG: {
+					extern u32 rtsDiag;
+					sharedAddr[0] = rtsDiag;
+					break;
+				}
 				case RTS_CMD_EXT_RESTORE:
 					// Undo the page-out the save path did before staging
 					restorePreManualFull();

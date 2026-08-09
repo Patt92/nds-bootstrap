@@ -54,6 +54,10 @@ u32 rtsAutoCmd = 0;
 
 extern void restorePreManualFull(void);
 
+// What the last resume actually managed to do; read back through
+// RTS_CMD_DIAG, since a load leaves the menu before anything can be shown
+u32 rtsDiag = RTS_DIAG_HS_NONE;
+
 // After a load the ext region still holds the staged DTCM image. The ARM9
 // trampoline copies it into DTCM and then says so; only then may the region's
 // real contents be paged back in from pagefile.sys. Both waits are bounded so
@@ -63,6 +67,9 @@ static void rtsFinishResume(void) {
 	while (sharedAddr[1] != RTS_HS_DTCM_DONE && ++guard < 0x2000000) { }
 	if (sharedAddr[1] == RTS_HS_DTCM_DONE) {
 		restorePreManualFull();
+		rtsDiag = (rtsDiag & ~0xFF) | RTS_DIAG_HS_OK;
+	} else {
+		rtsDiag = (rtsDiag & ~0xFF) | RTS_DIAG_HS_TIMEOUT;
 	}
 	sharedAddr[1] = RTS_HS_ACK;
 }
@@ -305,6 +312,7 @@ void rtsLoadState(void) {
 				// command; the resume trampoline lifts the image from here
 				// into DTCM and then lets us page the region back in
 				dst = RTS_RAM_WINDOW(INGAME_MENU_EXT_LOCATION + RTS_STAGING_DTCM_OFFSET);
+				rtsDiag = (rtsDiag & 0xFF) | ((section->size >> RTS_DIAG_DTCM_SHIFT) << RTS_DIAG_DTCM_SHIFT);
 				break;
 			case RTS_SEC_ITCM:
 				// ITCM holds code, which is identical across a save/load pair
@@ -331,6 +339,8 @@ void rtsLoadState(void) {
 
 	}
 	rtsSetStage(RTS_STAGE_DONE);
+
+	rtsDiag &= ~0xFFu; // outcome filled in by rtsFinishResume
 
 	// Arm the resume: the IGM exits the menu on RTS_OK, the ce9 wrapper
 	// jumps through rtsResumeArm9, and rtsMenuArm7 through rtsResumeArm7

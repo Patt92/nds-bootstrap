@@ -10,6 +10,14 @@
 #define RTS_CMD_SAVE 0x56415353 // 'SSAV'
 #define RTS_CMD_LOAD 0x444F4C53 // 'SLOD'
 #define RTS_CMD_EXT_RESTORE 0x54534552 // 'REST' - page the ext region back in
+#define RTS_CMD_DIAG        0x41494453 // 'SDIA' - report what the last load did
+
+// Packed into sharedAddr[0] by RTS_CMD_DIAG so the result screen can show
+// whether the last resume actually did what it was supposed to
+#define RTS_DIAG_HS_NONE    0 // no load resumed since boot
+#define RTS_DIAG_HS_OK      1 // ARM9 reported the DTCM copy, region paged back in
+#define RTS_DIAG_HS_TIMEOUT 2 // ARM9 never reported - trampoline did not run?
+#define RTS_DIAG_DTCM_SHIFT 8 // bytes of DTCM restored, >> 8
 
 // INGAME_MENU_EXT_LOCATION, used to stage the TCM images, is memory that
 // belongs to the running system: upstream never touches it without paging it
